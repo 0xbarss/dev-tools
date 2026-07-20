@@ -4,7 +4,31 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-DEFAULT_IGNORED_DIRS = [".git", "node_modules", ".venv", "build", "dist"]
+DEFAULT_IGNORED_DIRS = [
+    ".git",
+    # Python
+    ".venv", "venv", "env", "__pycache__", ".pytest_cache",
+    ".mypy_cache", ".ruff_cache", ".tox", ".eggs", "*.egg-info",
+    # Node / JS / TS
+    "node_modules", "dist", "build", "out", ".next", ".nuxt",
+    ".turbo", ".parcel-cache", ".angular", ".svelte-kit", "coverage",
+    # Rust
+    "target",
+    # Go
+    "vendor",
+    # Java / Gradle / Maven
+    ".gradle",
+    # Flutter / Dart
+    ".dart_tool", ".pub-cache",
+    # .NET
+    "bin", "obj",
+    # Mobile / native
+    "Pods", "DerivedData",
+    # Misc infra
+    ".terraform", "bazel-*", "cmake-build-*", ".stack-work",
+    # Coverage / cache (general)
+    "htmlcov", ".cache",
+]
 
 
 class ProjectOverride(BaseModel):
