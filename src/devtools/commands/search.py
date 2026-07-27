@@ -13,6 +13,7 @@ import typer
 from devtools.commands._shared import build_ignore_rules, fail, resolve_project
 from devtools.core.exit_codes import GENERAL_ERROR
 from devtools.core.export_engine import cache_output
+from devtools.core.fzf_integration import NOT_INSTALLED_HINT, run_fzf
 from devtools.core.output import render_table
 from devtools.core.search_engine import build_index, search as search_engine
 
@@ -25,6 +26,7 @@ def search(
     project: Optional[str] = typer.Argument(None, help="Project to search."),
     concept: str = typer.Argument(..., help="Concept to search for, e.g. authentication, database, payment, cache, jwt, endpoint."),
     build_index: bool = typer.Option(False, "--build-index", help="Build a local embedding index for true semantic ranking (not yet available)."),
+    fzf: bool = typer.Option(False, "--fzf", help="Pick results interactively via fzf (falls back to normal output if fzf isn't installed)."),
 ) -> None:
     """Search a project by concept rather than literal string."""
     state = ctx.obj
@@ -59,6 +61,17 @@ def search(
     if not hits:
         state.output.print(f"No matches for concept '{concept}' in '{proj.name}'.")
         return
+
+    if fzf:
+        candidates = [f"{h.rel_path} ({h.score}): {', '.join(h.matched_terms)}" for h in hits]
+        selected = run_fzf(candidates, prompt=f"{concept} > ")
+        if selected is None:
+            state.output.print(f"[dim]{NOT_INSTALLED_HINT}[/dim]")
+        else:
+            selected_set = set(selected)
+            hits = [h for h, c in zip(hits, candidates) if c in selected_set]
+            if not hits:
+                return
 
     rows = [[h.rel_path, h.score, ", ".join(h.matched_terms)] for h in hits]
     render_table(state.output, f"'{concept}' — related files", ["path", "score", "matched terms"], rows)

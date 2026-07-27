@@ -54,3 +54,29 @@ def test_apply_fixes_only_touches_fixable_issues(sample_repo):
     non_fixable = [i for i in issues if not i.fixable]
     actions = apply_fixes(sample_repo, non_fixable, ["node_modules"])
     assert actions == []
+
+
+def test_missing_readme_is_fixable(sample_repo):
+    (sample_repo / "README.md").unlink()
+    issues = run_all_checks(sample_repo, _rules(sample_repo), ["node_modules"])
+    readme_issue = next(i for i in issues if i.check == "missing_readme")
+    assert readme_issue.fixable
+
+
+def test_apply_fixes_creates_stub_readme(sample_repo):
+    (sample_repo / "README.md").unlink()
+    issues = run_all_checks(sample_repo, _rules(sample_repo), ["node_modules"])
+    fixable = [i for i in issues if i.fixable]
+    actions = apply_fixes(sample_repo, fixable, ["node_modules"], project_name="my-project")
+    assert any("README" in a for a in actions)
+    content = (sample_repo / "README.md").read_text()
+    assert "# my-project" in content
+    assert "## Installation" in content
+
+
+def test_apply_fixes_does_not_overwrite_existing_readme(sample_repo):
+    original = (sample_repo / "README.md").read_text()
+    issues = run_all_checks(sample_repo, _rules(sample_repo), ["node_modules"])
+    fixable = [i for i in issues if i.fixable]
+    apply_fixes(sample_repo, fixable, ["node_modules"], project_name="my-project")
+    assert (sample_repo / "README.md").read_text() == original

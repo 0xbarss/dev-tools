@@ -141,6 +141,84 @@ def save_projects(projects: dict[str, Project], projects_path: Path | None = Non
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# `devtools config get/set/list`
+# --------------------------------------------------------------------------- #
+
+
+class ConfigKeyError(KeyError):
+    """Raised for an unrecognized or unsupported config key."""
+
+
+def _parse_bool(raw: str) -> bool:
+    lowered = raw.strip().lower()
+    if lowered in ("true", "1", "yes", "on"):
+        return True
+    if lowered in ("false", "0", "no", "off"):
+        return False
+    raise ValueError(f"Not a boolean: {raw!r} (use true/false)")
+
+
+def _parse_list(raw: str) -> list[str]:
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+def get_config_value(settings: Settings, key: str):
+    """Read a config value by dotted key.
+
+    Supports top-level Settings fields (`output_format`, `allow_network`,
+    `ignored_dirs`, ...) and per-project overrides via
+    `project_overrides.<name>.ignored_dirs`.
+    """
+    parts = key.split(".")
+    if parts[0] == "project_overrides":
+        if len(parts) != 3 or parts[2] != "ignored_dirs":
+            raise ConfigKeyError(key)
+        override = settings.project_overrides.get(parts[1])
+        return override.ignored_dirs if override else []
+    if len(parts) != 1 or not hasattr(settings, parts[0]) or parts[0] == "project_overrides":
+        raise ConfigKeyError(key)
+    return getattr(settings, parts[0])
+
+
+def set_config_value(settings: Settings, key: str, raw_value: str) -> None:
+    """Set a config value by dotted key (same key space as `get_config_value`),
+    coercing `raw_value` to match the existing field's type. Mutates `settings`
+    in place; caller is responsible for persisting via `save_settings`."""
+    from devtools.models.settings import ProjectOverride
+
+    parts = key.split(".")
+    if parts[0] == "project_overrides":
+        if len(parts) != 3 or parts[2] != "ignored_dirs":
+            raise ConfigKeyError(key)
+        proj_name = parts[1]
+        override = settings.project_overrides.setdefault(proj_name, ProjectOverride())
+        override.ignored_dirs = _parse_list(raw_value)
+        return
+
+    if len(parts) != 1 or not hasattr(settings, parts[0]):
+        raise ConfigKeyError(key)
+    field_name = parts[0]
+    current = getattr(settings, field_name)
+
+    if isinstance(current, bool):
+        setattr(settings, field_name, _parse_bool(raw_value))
+    elif isinstance(current, list):
+        setattr(settings, field_name, _parse_list(raw_value))
+    else:
+        # Covers str fields and None-defaulting Optional[str] fields
+        # (e.g. default_project) alike.
+        setattr(settings, field_name, raw_value)
+
+
+def all_config_values(settings: Settings) -> dict:
+    """Flat dict of every gettable config value, for `devtools config list`."""
+    data = settings.model_dump(exclude={"project_overrides"})
+    for proj_name, override in settings.project_overrides.items():
+        data[f"project_overrides.{proj_name}.ignored_dirs"] = override.ignored_dirs
+    return data
+
+
 def resolve_project_name(
     cli_project: str | None,
     settings: Settings,

@@ -19,9 +19,11 @@ from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
     bundle as bundle_cmd,
+    ci as ci_cmd,
     clean as clean_cmd,
     collect as collect_cmd,
     completion as completion_cmd,
+    config as config_cmd,
     context as context_cmd,
     deps as deps_cmd,
     doctor as doctor_cmd,
@@ -30,7 +32,9 @@ from devtools.commands import (
     history as history_cmd,
     ignore as ignore_cmd,
     init as init_cmd,
+    license_check as license_check_cmd,
     project as project_cmd,
+    sbom as sbom_cmd,
     search as search_cmd,
     stats as stats_cmd,
     tree as tree_cmd,
@@ -125,12 +129,16 @@ app.command("search")(search_cmd.search)
 app.command("export")(export_cmd.export)
 app.command("history")(history_cmd.history)
 app.command("update")(update_cmd.update)
+app.command("sbom")(sbom_cmd.sbom)
+app.command("license-check")(license_check_cmd.license_check)
 
 # --- sub-apps with their own subcommands -----------------------------------------
 app.add_typer(project_cmd.app, name="project")
 app.add_typer(ignore_cmd.app, name="ignore")
 app.add_typer(alias_cmd.app, name="alias")
 app.add_typer(completion_cmd.app, name="completion")
+app.add_typer(ci_cmd.app, name="ci")
+app.add_typer(config_cmd.app, name="config")
 
 
 if __name__ == "__main__":

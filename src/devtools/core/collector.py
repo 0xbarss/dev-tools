@@ -7,6 +7,7 @@ per the golden-file testing strategy in spec §11.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,6 +15,9 @@ from devtools.core.filesystem import read_text_safely
 from devtools.core.ignore_rules import IgnoreRules
 from devtools.core.scanner import detect_language, scan_project
 from devtools.core.tokenizer import count_tokens
+
+_PARALLEL_THRESHOLD = 64
+_DEFAULT_MAX_WORKERS = 8
 
 
 @dataclass
@@ -42,6 +46,29 @@ class CollectionResult:
         return sum(f.size for f in self.files)
 
 
+@dataclass
+class _ReadResult:
+    path: Path
+    status: str  # "ok" | "binary" | "too_large"
+    text: str | None = None
+    tokens: int = 0
+
+
+def _read_one(path: Path, max_size: int | None) -> _ReadResult:
+    if max_size is not None:
+        try:
+            if path.stat().st_size > max_size:
+                return _ReadResult(path=path, status="too_large")
+        except OSError:
+            return _ReadResult(path=path, status="too_large")
+
+    text = read_text_safely(path, max_bytes=max_size)
+    if text is None:
+        return _ReadResult(path=path, status="binary")
+
+    return _ReadResult(path=path, status="ok", text=text, tokens=count_tokens(text))
+
+
 def collect_files(
     root: Path,
     ignore_rules: IgnoreRules,
@@ -49,48 +76,55 @@ def collect_files(
     max_size: int | None = None,
     only_paths: list[Path] | None = None,
     max_tokens: int | None = None,
+    parallel: bool = True,
+    max_workers: int = _DEFAULT_MAX_WORKERS,
 ) -> CollectionResult:
     """Walk the project (or `only_paths`), reading and token-counting files.
 
     If `max_tokens` is given, files are appended in the order encountered
     until the budget would be exceeded; remaining files are noted as
     truncated (mirrors the `bundle --max-tokens` truncation behavior).
+
+    Reading + tokenizing is fanned out over a thread pool (I/O-bound, so this
+    parallelizes well) but the budget-enforcement pass afterward stays
+    strictly sequential in encounter-order, since which files get truncated
+    depends on that order — parallelizing the read must never change *which*
+    files end up included.
     """
     result = CollectionResult(root=root)
 
     if only_paths is not None:
         entries = [p for p in only_paths if p.is_file() and not ignore_rules.is_ignored(p)]
     else:
-        entries = [e.path for e in scan_project(root, ignore_rules, languages=languages)]
+        entries = [e.path for e in scan_project(root, ignore_rules, languages=languages, parallel=parallel, max_workers=max_workers)]
+
+    if not parallel or len(entries) < _PARALLEL_THRESHOLD:
+        reads = [_read_one(p, max_size) for p in entries]
+    else:
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            reads = list(pool.map(lambda p: _read_one(p, max_size), entries))
 
     running_tokens = 0
-    for path in entries:
-        if max_size is not None:
-            try:
-                if path.stat().st_size > max_size:
-                    result.skipped_too_large.append(_rel(path, root))
-                    continue
-            except OSError:
-                continue
-
-        text = read_text_safely(path, max_bytes=max_size)
-        if text is None:
-            result.skipped_binary.append(_rel(path, root))
+    for r in reads:
+        if r.status == "too_large":
+            result.skipped_too_large.append(_rel(r.path, root))
+            continue
+        if r.status == "binary":
+            result.skipped_binary.append(_rel(r.path, root))
             continue
 
-        tokens = count_tokens(text)
-        if max_tokens is not None and running_tokens + tokens > max_tokens:
+        if max_tokens is not None and running_tokens + r.tokens > max_tokens:
             result.truncated = True
             continue
 
-        running_tokens += tokens
+        running_tokens += r.tokens
         result.files.append(
             CollectedFile(
-                rel_path=_rel(path, root),
-                language=detect_language(path),
-                content=text,
-                tokens=tokens,
-                size=len(text.encode("utf-8", errors="replace")),
+                rel_path=_rel(r.path, root),
+                language=detect_language(r.path),
+                content=r.text,
+                tokens=r.tokens,
+                size=len(r.text.encode("utf-8", errors="replace")),
             )
         )
 

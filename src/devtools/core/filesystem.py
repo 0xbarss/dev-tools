@@ -10,8 +10,15 @@ from __future__ import annotations
 import hashlib
 import os
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
+
+# Below this many candidate paths, threading overhead isn't worth it —
+# matches the "don't add complexity that doesn't pay for itself" philosophy
+# used elsewhere (e.g. is_probably_binary's simple byte-ratio heuristic).
+_PARALLEL_THRESHOLD = 64
+_DEFAULT_MAX_WORKERS = 8
 
 
 @dataclass
@@ -37,19 +44,46 @@ def is_probably_binary(path: Path, sniff_bytes: int = 8192) -> bool:
     return bool(chunk) and (nontext / len(chunk)) > 0.30
 
 
-def iter_file_entries(paths: Iterator[Path], root: Path) -> Iterator[FileEntry]:
-    for p in paths:
-        try:
-            stat = p.stat()
-        except OSError:
-            continue
-        yield FileEntry(
-            path=p,
-            rel_path=p.relative_to(root).as_posix(),
-            size=stat.st_size,
-            mtime=stat.st_mtime,
-            is_binary=is_probably_binary(p),
-        )
+def _build_entry(p: Path, root: Path) -> FileEntry | None:
+    try:
+        stat = p.stat()
+    except OSError:
+        return None
+    return FileEntry(
+        path=p,
+        rel_path=p.relative_to(root).as_posix(),
+        size=stat.st_size,
+        mtime=stat.st_mtime,
+        is_binary=is_probably_binary(p),
+    )
+
+
+def iter_file_entries(
+    paths: Iterator[Path],
+    root: Path,
+    parallel: bool = True,
+    max_workers: int = _DEFAULT_MAX_WORKERS,
+) -> Iterator[FileEntry]:
+    """Yield a FileEntry per path.
+
+    Each entry requires a stat() call plus a small read for binary sniffing —
+    pure I/O, so it parallelizes well with threads despite the GIL. Below
+    `_PARALLEL_THRESHOLD` paths we just go serial: thread-pool setup isn't
+    worth it for a handful of files, and this keeps single-file/tiny-repo
+    commands from paying pool-creation overhead for nothing.
+    """
+    path_list = list(paths)
+    if not parallel or len(path_list) < _PARALLEL_THRESHOLD:
+        for p in path_list:
+            entry = _build_entry(p, root)
+            if entry is not None:
+                yield entry
+        return
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for entry in pool.map(lambda p: _build_entry(p, root), path_list):
+            if entry is not None:
+                yield entry
 
 
 def read_text_safely(path: Path, max_bytes: int | None = None) -> str | None:

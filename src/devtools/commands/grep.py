@@ -12,6 +12,7 @@ from typing import List, Optional
 import typer
 
 from devtools.commands._shared import build_ignore_rules, resolve_project
+from devtools.core.fzf_integration import NOT_INSTALLED_HINT, run_fzf
 from devtools.core.grep_engine import grep as grep_engine
 from devtools.core.output import render_table
 
@@ -26,6 +27,7 @@ def grep(
     lang: List[str] = typer.Option([], "--lang", help="Restrict to these languages (repeatable)."),
     context: int = typer.Option(0, "--context", help="Lines of context to show around each match."),
     case_sensitive: bool = typer.Option(True, "--case-sensitive/--ignore-case", help="Case-sensitive matching (default: on)."),
+    fzf: bool = typer.Option(False, "--fzf", help="Pick matches interactively via fzf (falls back to normal output if fzf isn't installed)."),
 ) -> None:
     """Search the resolved project for `query`."""
     state = ctx.obj
@@ -60,6 +62,17 @@ def grep(
     if not matches:
         state.output.print(f"No matches for {query!r} in '{proj.name}'.")
         return
+
+    if fzf:
+        candidates = [f"{m.rel_path}:{m.line_number}: {m.line.strip()[:200]}" for m in matches]
+        selected = run_fzf(candidates, prompt=f"{query} > ")
+        if selected is None:
+            state.output.print(f"[dim]{NOT_INSTALLED_HINT}[/dim]" if not candidates else "[dim]No selection made.[/dim]")
+        else:
+            selected_set = set(selected)
+            matches = [m for m, c in zip(matches, candidates) if c in selected_set]
+            if not matches:
+                return
 
     if context:
         for m in matches:

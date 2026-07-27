@@ -64,3 +64,27 @@ def split_chain(command: str) -> list[list[str]]:
     import shlex
 
     return [shlex.split(part.strip()) for part in command.split("&&") if part.strip()]
+
+
+def parse_pipeline(command: str) -> list[list[list[str]]]:
+    """Parse an alias command string into sequential stages, each of which
+    may itself be a `|`-connected pipe chain.
+
+    `&&` still means "run next step only if the previous succeeded" (same as
+    `split_chain`); `|` within a step means "feed this step's stdout into the
+    next step's stdin", same as a shell pipe.
+
+    "stats api && grep api TODO | grep -v test" ->
+    [
+        [["stats", "api"]],
+        [["grep", "api", "TODO"], ["grep", "-v", "test"]],
+    ]
+    """
+    import shlex
+
+    sequential_parts = [p.strip() for p in command.split("&&") if p.strip()]
+    pipeline: list[list[list[str]]] = []
+    for part in sequential_parts:
+        stages = [shlex.split(stage.strip()) for stage in part.split("|") if stage.strip()]
+        pipeline.append(stages)
+    return pipeline

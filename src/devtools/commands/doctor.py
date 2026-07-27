@@ -34,7 +34,7 @@ def doctor(
 
     actions: list[str] = []
     if fix:
-        actions = apply_fixes(proj.resolved_path, issues, ignored_dirs)
+        actions = apply_fixes(proj.resolved_path, issues, ignored_dirs, project_name=proj.name)
         if actions:
             rules = build_ignore_rules(ctx, proj)
             issues = run_all_checks(proj.resolved_path, rules, ignored_dirs)

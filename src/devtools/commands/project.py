@@ -10,6 +10,7 @@ import typer
 from devtools.commands._shared import fail
 from devtools.core import config as cfgmod
 from devtools.core.exit_codes import INVALID_USAGE, PROJECT_NOT_FOUND
+from devtools.core.fzf_integration import NOT_INSTALLED_HINT, run_fzf
 from devtools.core.output import render_kv, render_table
 from devtools.models.project import Project
 
@@ -73,11 +74,33 @@ def rename(ctx: typer.Context, old_name: str = typer.Argument(...), new_name: st
 
 
 @app.command("list")
-def list_projects(ctx: typer.Context) -> None:
+def list_projects(
+    ctx: typer.Context,
+    fzf: bool = typer.Option(
+        False, "--fzf",
+        help="Pick a project interactively via fzf and print just its name "
+        "(handy for scripting, e.g. `devtools stats $(devtools project list --fzf)`).",
+    ),
+) -> None:
     """List all registered projects."""
     state = ctx.obj
     projects = cfgmod.load_projects()
     settings = cfgmod.load_settings(state.config_path)
+
+    if fzf and not state.output.is_json:
+        candidates = [
+            f"{name}  {proj.path}  {'MISSING' if not proj.exists() else ''}".rstrip()
+            for name, proj in sorted(projects.items())
+        ]
+        selected = run_fzf(candidates, prompt="project > ")
+        if selected is None:
+            if candidates:
+                state.output.print(f"[dim]{NOT_INSTALLED_HINT}[/dim]")
+            return
+        for line in selected:
+            state.output.print(line.split()[0])
+        return
+
     rows = [
         [name, proj.path, "yes" if proj.exists() else "MISSING", "yes" if name == settings.default_project else ""]
         for name, proj in sorted(projects.items())

@@ -58,8 +58,16 @@ def scan_project(
     root: Path,
     ignore_rules: IgnoreRules,
     languages: list[str] | None = None,
+    parallel: bool = True,
+    max_workers: int = 8,
 ) -> Iterator[FileEntry]:
-    """Yield FileEntry objects for non-ignored files, optionally filtered by language."""
+    """Yield FileEntry objects for non-ignored files, optionally filtered by language.
+
+    `parallel` controls whether the per-file stat + binary-sniff work (the
+    actual I/O cost once the directory walk has produced candidate paths) is
+    fanned out across a thread pool. Defaults to on; pass `parallel=False`
+    for deterministic single-threaded behavior (e.g. in tests).
+    """
     wanted = {normalize_lang(l) for l in languages} if languages else None
 
     def _paths() -> Iterator[Path]:
@@ -68,4 +76,4 @@ def scan_project(
                 continue
             yield p
 
-    yield from iter_file_entries(_paths(), root)
+    yield from iter_file_entries(_paths(), root, parallel=parallel, max_workers=max_workers)

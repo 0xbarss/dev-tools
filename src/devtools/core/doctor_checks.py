@@ -33,7 +33,10 @@ class DoctorIssue:
 def check_missing_readme(root: Path) -> DoctorIssue | None:
     if any((root / n).exists() for n in _case_variants(README_NAMES, root)):
         return None
-    return DoctorIssue("missing_readme", "warning", "No README file found at the project root.")
+    return DoctorIssue(
+        "missing_readme", "warning", "No README file found at the project root.",
+        fixable=True, fix_hint="create a stub README.md with common sections",
+    )
 
 
 def check_missing_license(root: Path) -> DoctorIssue | None:
@@ -148,7 +151,36 @@ def run_all_checks(root: Path, ignore_rules: IgnoreRules, ignored_dirs: list[str
     return issues
 
 
-def apply_fixes(root: Path, issues: list[DoctorIssue], ignored_dirs: list[str]) -> list[str]:
+_README_STUB_TEMPLATE = """# {title}
+
+## Description
+
+_TODO: describe what this project does and why it exists._
+
+## Installation
+
+```
+# TODO: add install instructions
+```
+
+## Usage
+
+```
+# TODO: add usage examples
+```
+
+## License
+
+See [LICENSE](LICENSE) for details.
+"""
+
+
+def apply_fixes(
+    root: Path,
+    issues: list[DoctorIssue],
+    ignored_dirs: list[str],
+    project_name: str | None = None,
+) -> list[str]:
     """Apply only the auto-fixable issues; returns a list of human-readable actions taken."""
     actions = []
     for issue in issues:
@@ -165,6 +197,12 @@ def apply_fixes(root: Path, issues: list[DoctorIssue], ignored_dirs: list[str]) 
                     for d in missing:
                         f.write(f"{d}/\n")
                 actions.append(f"Added {len(missing)} entries to .gitignore")
+        elif issue.check == "missing_readme":
+            readme = root / "README.md"
+            if not readme.exists():
+                title = project_name or root.name
+                readme.write_text(_README_STUB_TEMPLATE.format(title=title), encoding="utf-8")
+                actions.append("Created stub README.md")
     return actions
 
 

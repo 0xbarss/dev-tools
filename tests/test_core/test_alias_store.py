@@ -30,3 +30,27 @@ def test_split_chain_parses_ampersand_separated_commands():
 def test_split_chain_handles_quoted_arguments():
     chain = split_chain('grep "hello world" && stats api')
     assert chain[0] == ["grep", "hello world"]
+
+
+def test_parse_pipeline_sequential_only():
+    from devtools.core.alias_store import parse_pipeline
+
+    pipeline = parse_pipeline("stats api && doctor api --ci")
+    assert pipeline == [[["stats", "api"]], [["doctor", "api", "--ci"]]]
+
+
+def test_parse_pipeline_with_pipe_stage():
+    from devtools.core.alias_store import parse_pipeline
+
+    pipeline = parse_pipeline("grep api TODO | wc -l")
+    assert pipeline == [[["grep", "api", "TODO"], ["wc", "-l"]]]
+
+
+def test_parse_pipeline_mixes_sequential_and_piped():
+    from devtools.core.alias_store import parse_pipeline
+
+    pipeline = parse_pipeline("stats api && grep api TODO | grep -v test")
+    assert pipeline == [
+        [["stats", "api"]],
+        [["grep", "api", "TODO"], ["grep", "-v", "test"]],
+    ]
