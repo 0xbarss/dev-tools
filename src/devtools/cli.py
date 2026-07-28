@@ -19,6 +19,7 @@ from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
     bundle as bundle_cmd,
+    changelog as changelog_cmd,
     ci as ci_cmd,
     clean as clean_cmd,
     collect as collect_cmd,
@@ -27,13 +28,18 @@ from devtools.commands import (
     context as context_cmd,
     deps as deps_cmd,
     doctor as doctor_cmd,
+    explain as explain_cmd,
     export as export_cmd,
     grep as grep_cmd,
     history as history_cmd,
     ignore as ignore_cmd,
+    index as index_cmd,
     init as init_cmd,
     license_check as license_check_cmd,
+    lint as lint_cmd,
+    mcp_serve as mcp_serve_cmd,
     project as project_cmd,
+    review as review_cmd,
     sbom as sbom_cmd,
     search as search_cmd,
     stats as stats_cmd,
@@ -131,6 +137,11 @@ app.command("history")(history_cmd.history)
 app.command("update")(update_cmd.update)
 app.command("sbom")(sbom_cmd.sbom)
 app.command("license-check")(license_check_cmd.license_check)
+app.command("lint")(lint_cmd.lint)
+app.command("changelog")(changelog_cmd.changelog)
+app.command("explain")(explain_cmd.explain)
+app.command("review")(review_cmd.review)
+app.command("mcp-serve")(mcp_serve_cmd.mcp_serve)
 
 # --- sub-apps with their own subcommands -----------------------------------------
 app.add_typer(project_cmd.app, name="project")
@@ -139,6 +150,7 @@ app.add_typer(alias_cmd.app, name="alias")
 app.add_typer(completion_cmd.app, name="completion")
 app.add_typer(ci_cmd.app, name="ci")
 app.add_typer(config_cmd.app, name="config")
+app.add_typer(index_cmd.app, name="index")
 
 
 if __name__ == "__main__":

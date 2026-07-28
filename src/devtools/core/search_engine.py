@@ -1,9 +1,21 @@
-"""Semantic-ish concept search — Phase 3 staged plan from spec §6 `search`.
+"""Semantic-ish concept search — Phase 3 staged plan from spec §6 `search`,
+plus true semantic search (proposal deep-dive #2).
 
-Phase 3 (implemented here): keyword/synonym expansion + grep under the hood,
-no embeddings, no network. `--build-index` is reserved for the later,
-opt-in local-embedding stage and intentionally raises NotImplementedError
-so it fails loudly rather than silently degrading to keyword search.
+Phase 3 (keyword mode, default): keyword/synonym expansion + grep under the
+hood, no embeddings, no network.
+
+Semantic mode (`--semantic`, proposal deep-dive #2): ranks files by cosine
+similarity between a lightweight, dependency-free TF-IDF vector of the query
+and each file's vector, both computed/stored via `core/index_engine.py`.
+This is intentionally *not* a neural embedding model — it needs zero new
+dependencies and zero network access, matching the project's existing
+`allow_network` philosophy — but it answers the same "rank by meaning, not
+just keyword overlap" need the spec's original placeholder was reserved for.
+A real embedding backend (sentence-transformers/onnxruntime, or Ollama) can
+be added later as an alternate vector source without changing this module's
+public shape. `build_index()` populates the vectors; `search(..., semantic=True)`
+without a built index falls back to keyword search with a warning rather
+than erroring.
 """
 
 from __future__ import annotations
@@ -83,9 +95,59 @@ def expand_query(concept: str) -> list[str]:
 @dataclass
 class SearchHit:
     rel_path: str
-    score: int
+    score: float
     matched_terms: list[str]
     sample_matches: list[GrepMatch]
+
+
+def semantic_search(
+    root: Path,
+    project_name: str,
+    concept: str,
+    max_samples_per_file: int = 3,
+    ignore_rules: IgnoreRules | None = None,
+):
+    """Rank files by cosine similarity against the project's TF-IDF index.
+
+    Returns (hits, used_semantic). `used_semantic` is False when no index
+    with vectors exists yet -- callers should fall back to keyword search
+    and warn the user to run `devtools search --build-index` first.
+    """
+    from devtools.core import index_engine
+
+    corpus_vectors = index_engine.load_vectors(project_name)
+    if not corpus_vectors:
+        return [], False
+
+    expanded_query = " ".join(expand_query(concept)) or concept
+    query_vec = index_engine.query_vector(expanded_query, corpus_vectors)
+    if not query_vec:
+        return [], True
+
+    scored = [
+        (rel_path, index_engine.cosine_similarity(query_vec, vec))
+        for rel_path, vec in corpus_vectors.items()
+    ]
+    scored = [(p, s) for p, s in scored if s > 0]
+    scored.sort(key=lambda pair: pair[1], reverse=True)
+
+    hits = []
+    matched_terms = sorted(query_vec, key=lambda t: query_vec[t], reverse=True)[:8]
+    for rel_path, score in scored:
+        sample_matches: list[GrepMatch] = []
+        if ignore_rules is not None:
+            for term in matched_terms:
+                if len(sample_matches) >= max_samples_per_file:
+                    break
+                for m in grep(root, ignore_rules, term, regex=False, languages=None, case_sensitive=False):
+                    if m.rel_path == rel_path:
+                        sample_matches.append(m)
+                        if len(sample_matches) >= max_samples_per_file:
+                            break
+        hits.append(
+            SearchHit(rel_path=rel_path, score=round(score, 4), matched_terms=matched_terms, sample_matches=sample_matches)
+        )
+    return hits, True
 
 
 def search(
@@ -120,10 +182,12 @@ def search(
     return hits
 
 
-def build_index(root: Path) -> None:
-    """Reserved for the later, opt-in local-embedding search stage (spec §6)."""
-    raise NotImplementedError(
-        "Semantic embedding search is not implemented yet (staged for a later, "
-        "opt-in release per the spec's 'Later, opt-in' plan for `search`). "
-        "Use keyword search (the default) for now."
-    )
+def build_index(root: Path, project_name: str, ignore_rules: IgnoreRules) -> int:
+    """Build (or refresh) the local TF-IDF vector index used by `--semantic`.
+
+    No network, no model download -- see the module docstring for why this
+    isn't a neural embedding model. Returns the number of files (re)indexed.
+    """
+    from devtools.core import index_engine
+
+    return index_engine.build(root, project_name, ignore_rules, with_vectors=True)

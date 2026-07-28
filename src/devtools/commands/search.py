@@ -1,7 +1,9 @@
-"""`devtools search` — semantic-ish concept search (spec §6, staged plan).
+"""`devtools search` — concept search, keyword or semantic (spec §6; proposal
+deep-dive #2 for `--semantic`).
 
-Phase 3 (current): keyword/synonym expansion + grep under the hood.
---build-index is reserved for the later, opt-in local-embedding stage.
+Default mode: keyword/synonym expansion + grep under the hood. `--semantic`
+ranks by cosine similarity over a local TF-IDF index (`--build-index`),
+falling back to keyword search with a warning if no index exists yet.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from devtools.core.exit_codes import GENERAL_ERROR
 from devtools.core.export_engine import cache_output
 from devtools.core.fzf_integration import NOT_INSTALLED_HINT, run_fzf
 from devtools.core.output import render_table
-from devtools.core.search_engine import build_index, search as search_engine
+from devtools.core.search_engine import build_index as build_index_fn, semantic_search, search as search_engine
 
 app = typer.Typer()
 
@@ -24,25 +26,37 @@ app = typer.Typer()
 def search(
     ctx: typer.Context,
     project: Optional[str] = typer.Argument(None, help="Project to search."),
-    concept: str = typer.Argument(..., help="Concept to search for, e.g. authentication, database, payment, cache, jwt, endpoint."),
-    build_index: bool = typer.Option(False, "--build-index", help="Build a local embedding index for true semantic ranking (not yet available)."),
+    concept: Optional[str] = typer.Argument(None, help="Concept to search for, e.g. authentication, database, payment, cache, jwt, endpoint."),
+    build_index: bool = typer.Option(False, "--build-index", help="Build/refresh the local TF-IDF index used by --semantic."),
+    semantic: bool = typer.Option(False, "--semantic", help="Rank by meaning (cosine similarity over the local index) instead of keyword overlap."),
     fzf: bool = typer.Option(False, "--fzf", help="Pick results interactively via fzf (falls back to normal output if fzf isn't installed)."),
 ) -> None:
     """Search a project by concept rather than literal string."""
     state = ctx.obj
     proj = resolve_project(ctx, project)
+    rules = build_ignore_rules(ctx, proj)
 
     if build_index:
         try:
-            from devtools.core import search_engine as _se
-
-            _se.build_index(proj.resolved_path)
-        except NotImplementedError as exc:
-            fail(ctx, GENERAL_ERROR, str(exc))
+            count = build_index_fn(proj.resolved_path, proj.name, rules)
+        except Exception as exc:  # defensive: indexing should never crash the CLI
+            fail(ctx, GENERAL_ERROR, f"Failed to build index: {exc}")
+        state.output.print(f"[green]Indexed {count} changed file(s) for '{proj.name}'.[/green]")
         return
 
-    rules = build_ignore_rules(ctx, proj)
-    hits = search_engine(proj.resolved_path, rules, concept)
+    if not concept:
+        fail(ctx, GENERAL_ERROR, "A concept argument is required unless --build-index is passed.")
+
+    if semantic:
+        hits, used_semantic = semantic_search(proj.resolved_path, proj.name, concept, ignore_rules=rules)
+        if not used_semantic:
+            state.output.warn(
+                f"No semantic index found for '{proj.name}' -- falling back to keyword search. "
+                "Run `devtools search --build-index` first for true semantic ranking."
+            )
+            hits = search_engine(proj.resolved_path, rules, concept)
+    else:
+        hits = search_engine(proj.resolved_path, rules, concept)
 
     if state.output.is_json:
         payload = [

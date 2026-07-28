@@ -42,6 +42,13 @@ class Settings(BaseModel):
     allow_network: bool = False
     default_project: str | None = None
 
+    # Pluggable AI backend (spec §4 / proposal deep-dive #5). `ai_provider`
+    # is one of "none" (default; every AI command refuses to run), "claude",
+    # "openai", or "ollama". API keys are read from the provider's usual env
+    # var (ANTHROPIC_API_KEY / OPENAI_API_KEY) — never stored in config.toml.
+    ai_provider: str = "none"
+    ai_model: str | None = None
+
     ignored_dirs: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_DIRS))
     project_overrides: dict[str, ProjectOverride] = Field(default_factory=dict)
 

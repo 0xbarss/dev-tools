@@ -209,7 +209,12 @@ def apply_fixes(
 def _case_variants(names: set[str], root: Path) -> list[str]:
     variants = set()
     for n in names:
+        stem, dot, suffix = n.partition(".")
         variants.add(n)
         variants.add(n.upper())
         variants.add(n.capitalize())
+        if dot:
+            variants.add(f"{stem.upper()}.{suffix}")
+        else:
+            variants.add(stem.upper())
     return list(variants)

@@ -94,10 +94,11 @@ def test_history_records_previous_commands(sample_repo):
     assert any(e["command"] == "stats" for e in entries)
 
 
-def test_search_build_index_exits_1_not_implemented(sample_repo):
+def test_search_build_index_succeeds_now_implemented(sample_repo):
     name = _register(sample_repo)
-    result = runner.invoke(app, ["search", name, "auth", "--build-index"])
-    assert result.exit_code == 1
+    result = runner.invoke(app, ["search", name, "--build-index"])
+    assert result.exit_code == 0
+    assert "Indexed" in result.output
 
 
 def test_deps_json_finds_python_manifest(sample_repo):

@@ -51,3 +51,15 @@ def ensure_config_dir() -> Path:
     d = config_dir()
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def index_dir() -> Path:
+    """Where per-project SQLite indexes (spec proposal #1/#50) are stored."""
+    override = os.environ.get("DEVTOOLS_INDEX_DIR")
+    if override:
+        return Path(override).expanduser()
+    return cache_dir() / "index"
+
+
+def index_db_path(project_name: str) -> Path:
+    return index_dir() / f"{project_name}.sqlite3"

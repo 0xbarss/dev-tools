@@ -10,7 +10,7 @@ from pathlib import Path
 from devtools.core.ignore_rules import IgnoreRules
 from devtools.core.scanner import detect_language
 
-NON_SOURCE_LANGUAGES = {"other"}
+NON_SOURCE_LANGUAGES = {"other", "markdown", "text", "json", "yaml", "toml", "ini", "xml", "csv", "lock"}
 
 
 @dataclass
