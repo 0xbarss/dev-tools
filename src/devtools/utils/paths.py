@@ -63,3 +63,14 @@ def index_dir() -> Path:
 
 def index_db_path(project_name: str) -> Path:
     return index_dir() / f"{project_name}.sqlite3"
+
+
+def notify_targets_file_path() -> Path:
+    """Where configured notification webhook targets (`devtools notify`) live."""
+    return config_dir() / "notifications.json"
+
+
+def marketplace_custom_file_path() -> Path:
+    """User-added marketplace entries (`devtools marketplace add`), layered on
+    top of the bundled curated registry."""
+    return config_dir() / "marketplace_custom.json"

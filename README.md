@@ -59,6 +59,21 @@ below.
 | `history` | Append-only log of past runs |
 | `completion` | Install/show shell completion (bash/zsh/fish) |
 | `update` | Opt-in self-update check (never runs automatically) |
+| `sbom` | Generate a CycloneDX-style SBOM from detected manifests |
+| `license-check` | Best-effort local dependency license report |
+| `lint` | Multi-language lint orchestrator (shells out to installed linters) |
+| `changelog` | Group commits by Conventional Commit type into a changelog |
+| `explain` | One-shot AI explanation of a file or symbol |
+| `review` | AI-assisted diff/PR review ("suggestions, not blockers") |
+| `deadcode` | Unused imports and module-level definitions (advisory) |
+| `dupes` | Exact-file and duplicate-code-block detection |
+| `complexity` | Cyclomatic-complexity report for Python functions |
+| `investigate` | Bounded, autonomous search → read → finish investigation loop over a question |
+| `notify` | Configure and send Slack/Teams/Jira/generic webhook notifications |
+| `compliance report` | Audit-ready rollup (hygiene + licensing + dead code) with a 0–100 score, Markdown/HTML/JSON |
+| `marketplace` | Browse/register community plugin ideas and generate a static listing page |
+| `mcp-serve` | Expose devtools as an MCP context provider for AI coding tools |
+| `ci` | Emit ready-made CI config (`ci init --provider github`) |
 
 Run `devtools <command> --help` for full option details on any of them.
 
