@@ -78,6 +78,9 @@ below.
 | `marketplace` | Browse/register community plugin ideas and generate a static listing page |
 | `mcp-serve` | Expose devtools as an MCP context provider for AI coding tools |
 | `ci` | Emit ready-made CI config (`ci init --provider github`) |
+| `watch` | Re-run a command whenever the project's files change (polling-based; `--once` to run once and exit) |
+| `plugin` | Install/list/remove third-party `.py` plugins that register their own commands |
+| `ui` | Interactive TUI: project picker + per-project dashboard (health/stats/doctor). Optional: `pip install "devtools[tui]"` |
 
 Run `devtools <command> --help` for full option details on any of them.
 

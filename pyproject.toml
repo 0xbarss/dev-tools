@@ -29,6 +29,9 @@ dev = [
 mcp = [
     "mcp>=1.0",
 ]
+tui = [
+    "textual>=0.58",
+]
 
 [project.scripts]
 devtools = "devtools.cli:app"

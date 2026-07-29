@@ -50,13 +50,16 @@ from devtools.commands import (
     mcp_serve as mcp_serve_cmd,
     notify as notify_cmd,
     owners as owners_cmd,
+    plugin as plugin_cmd,
     project as project_cmd,
     review as review_cmd,
     sbom as sbom_cmd,
     search as search_cmd,
     stats as stats_cmd,
     tree as tree_cmd,
+    ui as ui_cmd,
     update as update_cmd,
+    watch as watch_cmd,
 )
 from devtools.core import config as cfgmod
 from devtools.core.exit_codes import SUCCESS
@@ -183,6 +186,7 @@ app.command("search")(search_cmd.search)
 app.command("export")(export_cmd.export)
 app.command("history")(history_cmd.history)
 app.command("update")(update_cmd.update)
+app.command("ui")(ui_cmd.ui)
 app.command("sbom")(sbom_cmd.sbom)
 app.command("license-check")(license_check_cmd.license_check)
 app.command("lint")(lint_cmd.lint)
@@ -198,6 +202,7 @@ app.command("owners")(owners_cmd.owners)
 app.command("branches")(branches_cmd.branches)
 app.command("health")(health_cmd.health)
 app.command("graph")(graph_cmd.graph)
+app.command("watch")(watch_cmd.watch)
 
 # --- sub-apps with their own subcommands -----------------------------------------
 app.add_typer(project_cmd.app, name="project")
@@ -210,6 +215,15 @@ app.add_typer(index_cmd.app, name="index")
 app.add_typer(notify_cmd.app, name="notify")
 app.add_typer(compliance_cmd.app, name="compliance")
 app.add_typer(marketplace_cmd.app, name="marketplace")
+app.add_typer(plugin_cmd.app, name="plugin")
+
+# --- third-party/user plugins (backlog #8) ---------------------------------
+# Additive, after every built-in command is registered: a broken or
+# malicious plugin can only fail to add its own commands, never remove or
+# shadow one of the above.
+from devtools.core import plugin_engine  # noqa: E402 - deliberately after built-in registration, see comment above
+
+plugin_engine.load_all_plugins(app)
 
 
 if __name__ == "__main__":

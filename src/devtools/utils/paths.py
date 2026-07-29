@@ -74,3 +74,11 @@ def marketplace_custom_file_path() -> Path:
     """User-added marketplace entries (`devtools marketplace add`), layered on
     top of the bundled curated registry."""
     return config_dir() / "marketplace_custom.json"
+
+
+def plugins_dir() -> Path:
+    """Where single-file script plugins installed via `devtools plugin
+    install ./my-check.py` are copied (the "config-only"/simple tier --
+    proper packages register through Python entry points instead and
+    never touch this directory)."""
+    return config_dir() / "plugins"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 
 from typer.testing import CliRunner
 
@@ -170,3 +171,135 @@ def test_graph_module_filter_restricts_nodes(sample_repo):
     assert result.exit_code == 0
     payload = json.loads(result.output)
     assert payload["nodes"] == ["main"]
+
+
+# --- watch --------------------------------------------------------------
+
+
+def test_watch_once_runs_the_target_command_and_exits(sample_repo):
+    name = _register(sample_repo, "watch_once")
+    result = runner.invoke(app, ["watch", "stats", name, "--once"])
+    assert result.exit_code == 0
+    assert "summary" in result.output.lower()
+
+
+def test_watch_passes_through_extra_args(sample_repo):
+    name = _register(sample_repo, "watch_args")
+    result = runner.invoke(app, ["watch", "health", name, "--once", "--arg", "--ci", "--arg", "--min-score", "--arg", "0"])
+    assert result.exit_code == 0
+
+
+def test_watch_loop_reruns_on_file_change(sample_repo):
+    name = _register(sample_repo, "watch_loop")
+    result = runner.invoke(
+        app,
+        ["watch", "stats", name, "--interval", "0", "--max-iterations", "1"],
+    )
+    assert result.exit_code == 0
+    # Exactly one immediate run, since nothing changes within a single
+    # zero-length poll in a CliRunner-driven test.
+    assert result.output.count("Running: devtools stats") == 1
+
+
+def test_watch_unknown_command_reports_error_but_does_not_crash(sample_repo):
+    name = _register(sample_repo, "watch_bad_command")
+    result = runner.invoke(app, ["watch", "not-a-real-command", name, "--once"])
+    assert result.exit_code == 0  # the watch command itself succeeds; the inner failure is reported, not raised
+
+
+# --- plugin ---------------------------------------------------------------
+
+_VALID_PLUGIN_SOURCE = '''
+import typer
+
+DEVTOOLS_API_VERSION = "1"
+
+def register(app: typer.Typer) -> None:
+    @app.command("hello-from-plugin-cli-test")
+    def hello():
+        print("hello from plugin")
+'''
+
+
+def test_plugin_list_empty_by_default():
+    result = runner.invoke(app, ["plugin", "list"])
+    assert result.exit_code == 0
+    assert "No plugins installed" in result.output
+
+
+def test_plugin_install_then_list_then_remove(tmp_path):
+    src = tmp_path / "cli_test_plugin.py"
+    src.write_text(_VALID_PLUGIN_SOURCE)
+
+    install_result = runner.invoke(app, ["plugin", "install", str(src)])
+    assert install_result.exit_code == 0
+    assert "Installed plugin 'cli_test_plugin'" in install_result.output
+
+    list_result = runner.invoke(app, ["--json", "plugin", "list"])
+    assert list_result.exit_code == 0
+    payload = json.loads(list_result.output)
+    assert any(p["name"] == "cli_test_plugin" and p["error"] is None for p in payload["plugins"])
+
+    remove_result = runner.invoke(app, ["plugin", "remove", "cli_test_plugin"])
+    assert remove_result.exit_code == 0
+
+    list_after = runner.invoke(app, ["--json", "plugin", "list"])
+    payload_after = json.loads(list_after.output)
+    assert not any(p["name"] == "cli_test_plugin" for p in payload_after["plugins"])
+
+
+def test_plugin_install_rejects_invalid_script(tmp_path):
+    src = tmp_path / "bad.py"
+    src.write_text("x = 1\n")  # no register(app)
+    result = runner.invoke(app, ["plugin", "install", str(src)])
+    assert result.exit_code == 1
+
+
+def test_plugin_remove_missing_plugin_fails_cleanly():
+    result = runner.invoke(app, ["plugin", "remove", "totally-not-installed"])
+    assert result.exit_code == 1
+
+
+# --- ui (entry point only -- deep TUI interaction is in tests/test_tui/) ---
+
+
+def test_ui_launches_dashboard_for_valid_project(monkeypatch, sample_repo):
+    name = _register(sample_repo, "ui_demo")
+    captured = {}
+
+    def fake_run_tui(initial_project=None):
+        captured["initial_project"] = initial_project
+
+    monkeypatch.setattr("devtools.tui.app.run_tui", fake_run_tui)
+    result = runner.invoke(app, ["ui", name])
+    assert result.exit_code == 0
+    assert captured["initial_project"] == name
+
+
+def test_ui_with_no_project_opens_the_picker(monkeypatch, sample_repo):
+    _register(sample_repo, "ui_picker_demo")
+    captured = {}
+
+    def fake_run_tui(initial_project=None):
+        captured["initial_project"] = initial_project
+
+    monkeypatch.setattr("devtools.tui.app.run_tui", fake_run_tui)
+    result = runner.invoke(app, ["ui"])
+    assert result.exit_code == 0
+    assert captured["initial_project"] is None
+
+
+def test_ui_unknown_project_fails_before_launching_tui(monkeypatch):
+    called = {"count": 0}
+    monkeypatch.setattr("devtools.tui.app.run_tui", lambda **kw: called.__setitem__("count", called["count"] + 1))
+    result = runner.invoke(app, ["ui", "no-such-project"])
+    assert result.exit_code == 3  # PROJECT_NOT_FOUND
+    assert called["count"] == 0
+
+
+def test_ui_missing_textual_dependency_reports_helpful_message(monkeypatch, sample_repo):
+    name = _register(sample_repo, "ui_no_textual")
+    monkeypatch.setitem(sys.modules, "devtools.tui.app", None)
+    result = runner.invoke(app, ["ui", name])
+    assert result.exit_code == 1
+    assert "textual" in result.output.lower()
