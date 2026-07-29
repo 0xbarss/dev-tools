@@ -6,10 +6,11 @@ from typing import Optional
 
 import typer
 
-from devtools.commands._shared import build_ignore_rules, resolve_project
+from devtools.commands._shared import build_ignore_rules, fail, resolve_project
 from devtools.core.doctor_checks import apply_fixes, run_all_checks
-from devtools.core.exit_codes import CHECK_FAILED
+from devtools.core.exit_codes import CHECK_FAILED, INVALID_USAGE
 from devtools.core.export_engine import cache_output
+from devtools.core.notify_engine import load_targets, send_notification
 from devtools.core.output import render_table
 
 app = typer.Typer()
@@ -23,6 +24,7 @@ def doctor(
     project: Optional[str] = typer.Argument(None, help="Project to check."),
     fix: bool = typer.Option(False, "--fix", help="Apply auto-fixable issues (e.g. add missing .gitignore entries)."),
     ci: bool = typer.Option(False, "--ci", help="Exit 5 on any failed check; never prompt."),
+    notify: Optional[str] = typer.Option(None, "--notify", help="Send a summary to this configured `devtools notify` target, but only if issues were found."),
 ) -> None:
     """Run repository health checks: README/LICENSE, tests, binaries, symlinks, duplicates, .gitignore."""
     state = ctx.obj
@@ -60,6 +62,19 @@ def doctor(
             "doctor",
             proj.name,
             {"issues": [{"check": i.check, "severity": i.severity, "message": i.message} for i in issues]},
+        )
+
+    if notify is not None and issues:
+        targets = load_targets()
+        target = targets.get(notify)
+        if target is None:
+            fail(ctx, INVALID_USAGE, f"No notification target named '{notify}'. Run `devtools notify list`.")
+        errors = sum(1 for i in issues if i.severity == "error")
+        send_notification(
+            target,
+            event="devtools doctor",
+            message=f"doctor found {len(issues)} issue(s) ({errors} error-severity) in '{proj.name}'.",
+            fields={"project": proj.name, "issues": len(issues), "errors": errors},
         )
 
     if ci and issues:

@@ -52,6 +52,11 @@ class Settings(BaseModel):
     ignored_dirs: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_DIRS))
     project_overrides: dict[str, ProjectOverride] = Field(default_factory=dict)
 
+    # Base URL used to turn bare issue IDs found by `devtools pr link-issues`
+    # into clickable links, e.g. "https://github.com/org/repo/issues" or
+    # "https://org.atlassian.net/browse". None means IDs are printed as-is.
+    issue_tracker_url: str | None = None
+
     def ignored_dirs_for(self, project_name: str | None) -> list[str]:
         """ignored_dirs is additive: global list + that project's overrides."""
         combined = list(self.ignored_dirs)

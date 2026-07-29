@@ -82,3 +82,23 @@ def plugins_dir() -> Path:
     proper packages register through Python entry points instead and
     never touch this directory)."""
     return config_dir() / "plugins"
+
+
+def bookmarks_file_path() -> Path:
+    """Named quick-jumps within projects (`devtools bookmark`, backlog #37)."""
+    return config_dir() / "bookmarks.json"
+
+
+def snippets_file_path() -> Path:
+    """Small reusable code snippets (`devtools snippet`, backlog #34)."""
+    return config_dir() / "snippets.json"
+
+
+def saved_searches_file_path() -> Path:
+    """Named, re-runnable `devtools search` queries (backlog #38)."""
+    return config_dir() / "saved_searches.json"
+
+
+def prompt_templates_file_path() -> Path:
+    """User-defined reusable AI prompt templates (`devtools prompt`, backlog #31)."""
+    return config_dir() / "prompt_templates.json"

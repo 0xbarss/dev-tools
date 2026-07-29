@@ -15,6 +15,7 @@ from devtools.commands._shared import fail, resolve_project
 from devtools.core.deps_engine import analyze
 from devtools.core.exit_codes import CHECK_FAILED, INVALID_USAGE
 from devtools.core.export_engine import cache_output
+from devtools.core.notify_engine import load_targets, send_notification
 from devtools.core.output import render_table
 
 app = typer.Typer()
@@ -28,6 +29,7 @@ def deps(
     outdated: bool = typer.Option(False, "--outdated", help="Check the configured registry for newer versions (network)."),
     check: bool = typer.Option(False, "--check", help="Exit 5 if any ecosystem has zero resolvable versions (CI use)."),
     allow_network: bool = typer.Option(False, "--allow-network", help="Permit this invocation to reach a package registry for --outdated."),
+    notify: Optional[str] = typer.Option(None, "--notify", help="Send a summary to this configured `devtools notify` target, but only on failure (manifests found but nothing parsed)."),
 ) -> None:
     """Analyze dependency manifests found in the project."""
     state = ctx.obj
@@ -71,7 +73,21 @@ def deps(
             {"ecosystems": report.ecosystems_found, "dependency_count": len(report.dependencies)},
         )
 
-    if check and not report.dependencies and report.manifest_files:
+    is_failure = not report.dependencies and report.manifest_files
+
+    if notify is not None and is_failure:
+        targets = load_targets()
+        target = targets.get(notify)
+        if target is None:
+            fail(ctx, INVALID_USAGE, f"No notification target named '{notify}'. Run `devtools notify list`.")
+        send_notification(
+            target,
+            event="devtools deps",
+            message=f"deps found {len(report.manifest_files)} manifest(s) in '{proj.name}' but could not parse any dependencies.",
+            fields={"project": proj.name, "manifest_files": report.manifest_files},
+        )
+
+    if check and is_failure:
         state.output.error("Manifests were found but no dependencies could be parsed from them.")
         state.exit_code = CHECK_FAILED
         raise typer.Exit(code=CHECK_FAILED)

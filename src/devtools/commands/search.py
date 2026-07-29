@@ -17,6 +17,7 @@ from devtools.core.exit_codes import GENERAL_ERROR
 from devtools.core.export_engine import cache_output
 from devtools.core.fzf_integration import NOT_INSTALLED_HINT, run_fzf
 from devtools.core.output import render_table
+from devtools.core.saved_search_store import load_saved_searches, remove_saved_search, save_search
 from devtools.core.search_engine import build_index as build_index_fn, semantic_search, search as search_engine
 
 app = typer.Typer()
@@ -30,11 +31,40 @@ def search(
     build_index: bool = typer.Option(False, "--build-index", help="Build/refresh the local TF-IDF index used by --semantic."),
     semantic: bool = typer.Option(False, "--semantic", help="Rank by meaning (cosine similarity over the local index) instead of keyword overlap."),
     fzf: bool = typer.Option(False, "--fzf", help="Pick results interactively via fzf (falls back to normal output if fzf isn't installed)."),
+    save: Optional[str] = typer.Option(None, "--save", help="Save this project+concept (+--semantic) as a named search for later with --load."),
+    load: Optional[str] = typer.Option(None, "--load", help="Run a previously-saved search by name (fills in project/concept/--semantic)."),
+    list_saved: bool = typer.Option(False, "--list-saved", help="List saved searches and exit."),
+    remove_saved: Optional[str] = typer.Option(None, "--remove-saved", help="Delete a saved search by name and exit."),
 ) -> None:
     """Search a project by concept rather than literal string."""
     state = ctx.obj
+
+    if list_saved:
+        rows = [[s.name, s.project, s.concept, "yes" if s.semantic else ""] for s in sorted(load_saved_searches().values(), key=lambda s: s.name)]
+        render_table(state.output, "Saved searches", ["name", "project", "concept", "semantic"], rows, json_key="saved_searches")
+        return
+
+    if remove_saved:
+        if remove_saved_search(remove_saved):
+            state.output.print(f"Removed saved search '{remove_saved}'")
+        else:
+            fail(ctx, GENERAL_ERROR, f"No saved search named '{remove_saved}'.")
+        return
+
+    if load:
+        saved = load_saved_searches().get(load)
+        if saved is None:
+            fail(ctx, GENERAL_ERROR, f"No saved search named '{load}'. Run `devtools search --list-saved` to see saved searches.")
+        project = project or saved.project
+        concept = concept or saved.concept
+        semantic = semantic or saved.semantic
+
     proj = resolve_project(ctx, project)
     rules = build_ignore_rules(ctx, proj)
+
+    if save and concept:
+        save_search(save, proj.name, concept, semantic=semantic)
+        state.output.info(f"Saved this search as '{save}'.")
 
     if build_index:
         try:

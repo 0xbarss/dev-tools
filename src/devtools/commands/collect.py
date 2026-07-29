@@ -51,22 +51,25 @@ def collect(
         except ParseError as exc:
             fail(ctx, INVALID_USAGE, str(exc))
 
-    rules = build_ignore_rules(ctx, proj, extra_excludes=list(exclude), use_gitignore=not no_gitignore)
+    with state.tracer.phase("build_ignore_rules"):
+        rules = build_ignore_rules(ctx, proj, extra_excludes=list(exclude), use_gitignore=not no_gitignore)
 
     only_paths = None
     if since:
-        try:
-            only_paths = changed_files_since(proj.resolved_path, since)
-        except GitError as exc:
-            fail(ctx, GENERAL_ERROR, str(exc))
+        with state.tracer.phase("git_since_scan"):
+            try:
+                only_paths = changed_files_since(proj.resolved_path, since)
+            except GitError as exc:
+                fail(ctx, GENERAL_ERROR, str(exc))
 
-    result = collect_files(
-        proj.resolved_path,
-        rules,
-        languages=list(lang) or None,
-        max_size=max_size_bytes,
-        only_paths=only_paths,
-    )
+    with state.tracer.phase("collect_files"):
+        result = collect_files(
+            proj.resolved_path,
+            rules,
+            languages=list(lang) or None,
+            max_size=max_size_bytes,
+            only_paths=only_paths,
+        )
 
     if state.output.is_json:
         payload = render_json(result)
@@ -75,41 +78,43 @@ def collect(
         _touch_last_collected(proj.name)
         return
 
-    if fmt == "json":
-        content_groups = [_json_dump(render_json(result))]
-        write_mode = "json"
-    elif fmt == "text":
-        content_groups = [render_text(result)]
-        write_mode = "text"
-    else:
-        if chunk_size:
-            chunks = chunk_by_tokens(result.files, chunk_size)
-            content_groups = [
-                render_markdown(_sub_result(result, chunk), proj.name, title=f"{proj.name} part {i+1}/{len(chunks)}")
-                for i, chunk in enumerate(chunks)
-            ]
+    with state.tracer.phase("render"):
+        if fmt == "json":
+            content_groups = [_json_dump(render_json(result))]
+            write_mode = "json"
+        elif fmt == "text":
+            content_groups = [render_text(result)]
+            write_mode = "text"
         else:
-            content_groups = [render_markdown(result, proj.name)]
-        write_mode = "markdown"
+            if chunk_size:
+                chunks = chunk_by_tokens(result.files, chunk_size)
+                content_groups = [
+                    render_markdown(_sub_result(result, chunk), proj.name, title=f"{proj.name} part {i+1}/{len(chunks)}")
+                    for i, chunk in enumerate(chunks)
+                ]
+            else:
+                content_groups = [render_markdown(result, proj.name)]
+            write_mode = "markdown"
 
-    if stdout:
-        for content in content_groups:
-            print(content)
-    else:
-        out_dir = out or Path.cwd()
-        out_dir.mkdir(parents=True, exist_ok=True)
-        ext = {"markdown": "md", "json": "json", "text": "txt"}[write_mode]
-        written = []
-        for i, content in enumerate(content_groups):
-            suffix = f"_{i+1}" if len(content_groups) > 1 else ""
-            out_path = out_dir / f"{proj.name}_collect{suffix}.{ext}"
-            try:
-                out_path.write_text(content, encoding="utf-8")
-            except OSError as exc:
-                fail(ctx, FILESYSTEM_ERROR, f"Could not write {out_path}: {exc}")
-            written.append(out_path)
-        for p in written:
-            state.output.print(f"[green]Wrote {p}[/green]")
+    with state.tracer.phase("write_output"):
+        if stdout:
+            for content in content_groups:
+                print(content)
+        else:
+            out_dir = out or Path.cwd()
+            out_dir.mkdir(parents=True, exist_ok=True)
+            ext = {"markdown": "md", "json": "json", "text": "txt"}[write_mode]
+            written = []
+            for i, content in enumerate(content_groups):
+                suffix = f"_{i+1}" if len(content_groups) > 1 else ""
+                out_path = out_dir / f"{proj.name}_collect{suffix}.{ext}"
+                try:
+                    out_path.write_text(content, encoding="utf-8")
+                except OSError as exc:
+                    fail(ctx, FILESYSTEM_ERROR, f"Could not write {out_path}: {exc}")
+                written.append(out_path)
+            for p in written:
+                state.output.print(f"[green]Wrote {p}[/green]")
 
     state.output.print(
         f"{len(result.files)} files, ~{result.total_tokens} tokens"

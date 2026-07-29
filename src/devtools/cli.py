@@ -19,6 +19,7 @@ from typer.core import TyperGroup
 from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
+    bookmark as bookmark_cmd,
     branches as branches_cmd,
     bundle as bundle_cmd,
     changelog as changelog_cmd,
@@ -51,10 +52,13 @@ from devtools.commands import (
     notify as notify_cmd,
     owners as owners_cmd,
     plugin as plugin_cmd,
+    pr as pr_cmd,
     project as project_cmd,
+    prompt as prompt_cmd,
     review as review_cmd,
     sbom as sbom_cmd,
     search as search_cmd,
+    snippet as snippet_cmd,
     stats as stats_cmd,
     tree as tree_cmd,
     ui as ui_cmd,
@@ -64,6 +68,8 @@ from devtools.commands import (
 from devtools.core import config as cfgmod
 from devtools.core.exit_codes import SUCCESS
 from devtools.core.history_log import record_run
+from devtools.core.output import render_table
+from devtools.core.tracer import Tracer
 from devtools.utils.console import build_output_context
 
 # Click's Group stops parsing group-level options at the first non-option
@@ -121,6 +127,7 @@ class GlobalState:
         self.project_arg: Optional[str] = None
         self.command_name: str = ""
         self.exit_code: int = SUCCESS
+        self.tracer: Tracer = Tracer(enabled=False)
 
 
 def _version_callback(value: bool) -> None:
@@ -139,6 +146,7 @@ def main(
     no_color: bool = typer.Option(False, "--no-color", help="Disable ANSI colors (also respects NO_COLOR)."),
     config: Optional[Path] = typer.Option(None, "--config", help="Override the config file location for this invocation."),
     project: Optional[str] = typer.Option(None, "--project", help="Explicit project name for this invocation."),
+    trace: bool = typer.Option(False, "--trace", help="Print a per-phase timing breakdown after commands that support it."),
     version: Optional[bool] = typer.Option(None, "--version", callback=_version_callback, is_eager=True, help="Show the devtools version and exit."),
 ) -> None:
     """devtools — a personal, installable developer toolkit."""
@@ -153,6 +161,7 @@ def main(
     state.config_path = config
     state.project_arg = project
     state.command_name = ctx.invoked_subcommand or ""
+    state.tracer = Tracer(enabled=trace)
     ctx.obj = state
 
     start = time.perf_counter()
@@ -165,6 +174,15 @@ def main(
             duration_ms=duration_ms,
             exit_code=state.exit_code,
         )
+        # `--trace`, backlog #52: print per-phase timings for commands that
+        # opted in via state.tracer.phase(...); silent no-op for commands
+        # that didn't instrument any phases (or when --trace wasn't passed).
+        if state.tracer.enabled and state.tracer.timings and not state.output.quiet:
+            columns = ["phase", "seconds", "pct"]
+            rows = [[r["phase"], r["seconds"], r["pct"]] for r in state.tracer.as_rows()]
+            rows.append(["total (traced)", f"{state.tracer.total_seconds:.3f}", ""])
+            rows.append(["total (wall clock)", f"{duration_ms / 1000:.3f}", ""])
+            render_table(state.output, "Trace", columns, rows)
 
     ctx.call_on_close(_finalize)
 
@@ -204,6 +222,9 @@ app.command("health")(health_cmd.health)
 app.command("graph")(graph_cmd.graph)
 app.command("watch")(watch_cmd.watch)
 
+# --- P3 backlog: issue linking (#20) ----------------------------------------
+app.add_typer(pr_cmd.app, name="pr")
+
 # --- sub-apps with their own subcommands -----------------------------------------
 app.add_typer(project_cmd.app, name="project")
 app.add_typer(ignore_cmd.app, name="ignore")
@@ -216,6 +237,11 @@ app.add_typer(notify_cmd.app, name="notify")
 app.add_typer(compliance_cmd.app, name="compliance")
 app.add_typer(marketplace_cmd.app, name="marketplace")
 app.add_typer(plugin_cmd.app, name="plugin")
+# --- P3 backlog: prompt template library (#31), snippet manager (#34),
+# bookmarks (#37) --------------------------------------------------------
+app.add_typer(prompt_cmd.app, name="prompt")
+app.add_typer(snippet_cmd.app, name="snippet")
+app.add_typer(bookmark_cmd.app, name="bookmark")
 
 # --- third-party/user plugins (backlog #8) ---------------------------------
 # Additive, after every built-in command is registered: a broken or
