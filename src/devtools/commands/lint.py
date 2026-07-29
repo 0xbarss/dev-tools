@@ -41,20 +41,21 @@ def lint(
 
     skipped = [r for r in report.results if not r.ran]
     findings = report.findings
+    findings_payload = [
+        {
+            "file": f.file,
+            "line": f.line,
+            "rule": f.rule,
+            "severity": f.severity,
+            "message": f.message,
+            "source_linter": f.source_linter,
+        }
+        for f in findings
+    ]
 
     if state.output.is_json:
         payload = {
-            "findings": [
-                {
-                    "file": f.file,
-                    "line": f.line,
-                    "rule": f.rule,
-                    "severity": f.severity,
-                    "message": f.message,
-                    "source_linter": f.source_linter,
-                }
-                for f in findings
-            ],
+            "findings": findings_payload,
             "skipped": [{"linter": r.linter, "ecosystem": r.ecosystem, "error": r.error} for r in skipped],
         }
         state.output.emit_json(payload)
@@ -69,11 +70,7 @@ def lint(
             render_table(state.output, f"{proj.name} — lint findings", ["file", "line", "rule", "severity", "message", "source_linter"], rows)
         for r in skipped:
             state.output.warn(f"{r.error}")
-        cache_output(
-            "lint",
-            proj.name,
-            {"findings": [{"file": f.file, "severity": f.severity, "message": f.message} for f in findings]},
-        )
+        cache_output("lint", proj.name, {"findings": findings_payload})
 
     if ci and report.has_errors:
         state.exit_code = CHECK_FAILED

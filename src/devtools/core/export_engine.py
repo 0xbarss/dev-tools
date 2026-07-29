@@ -76,6 +76,53 @@ def to_html_table(title: str, rows: list[dict]) -> str:
     )
 
 
+def to_sarif(findings: list[dict], tool_name: str = "devtools lint") -> str:
+    """SARIF 2.1.0 log for lint findings (backlog #55), so `devtools lint`
+    output can feed GitHub code scanning, Azure DevOps, or any other
+    SARIF-consuming dashboard. Expects the same shape `devtools lint --json`
+    already emits per finding: file, line, rule, severity, message,
+    source_linter (all but `file`/`message` are optional; missing values
+    degrade gracefully rather than raising, since a partially-populated
+    finding is still worth reporting).
+    """
+    _SEVERITY_TO_LEVEL = {"error": "error", "warning": "warning", "info": "note"}
+
+    rule_ids = sorted({f.get("rule") for f in findings if f.get("rule")})
+    rules = [{"id": rid, "name": rid} for rid in rule_ids]
+
+    results = []
+    for f in findings:
+        line = f.get("line") or 1  # SARIF regions are 1-indexed; None means "location unknown"
+        results.append(
+            {
+                "ruleId": f.get("rule") or "unspecified",
+                "level": _SEVERITY_TO_LEVEL.get(f.get("severity"), "warning"),
+                "message": {"text": f.get("message", "")},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {"uri": f.get("file", "")},
+                            "region": {"startLine": line},
+                        }
+                    }
+                ],
+                "properties": {"source_linter": f.get("source_linter")} if f.get("source_linter") else {},
+            }
+        )
+
+    sarif_log = {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {"driver": {"name": tool_name, "informationUri": "https://github.com/", "rules": rules}},
+                "results": results,
+            }
+        ],
+    }
+    return _json.dumps(sarif_log, indent=2)
+
+
 def tree_to_html(title: str, tree_dict: dict) -> str:
     def _render(node: dict) -> str:
         name = html.escape(node.get("name", ""))

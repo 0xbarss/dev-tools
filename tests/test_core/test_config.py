@@ -4,7 +4,7 @@ from pathlib import Path
 
 from devtools.core import config as cfgmod
 from devtools.models.project import Project
-from devtools.models.settings import ProjectOverride, Settings
+from devtools.models.settings import DEFAULT_IGNORED_DIRS, ProjectOverride, Settings
 
 
 def test_settings_roundtrip_via_toml(tmp_path):
@@ -19,12 +19,10 @@ def test_settings_roundtrip_via_toml(tmp_path):
 
     assert loaded.default_project == "api"
     assert loaded.allow_network is True
-    assert loaded.ignored_dirs_for("api") == [
-        ".git", "node_modules", ".venv", "build", "dist", "legacy/",
-    ]
-    assert loaded.ignored_dirs_for("unknown_project") == [
-        ".git", "node_modules", ".venv", "build", "dist",
-    ]
+    # ignored_dirs is additive: the full global default list, plus any
+    # per-project override entries appended (see Settings.ignored_dirs_for).
+    assert loaded.ignored_dirs_for("api") == [*DEFAULT_IGNORED_DIRS, "legacy/"]
+    assert loaded.ignored_dirs_for("unknown_project") == DEFAULT_IGNORED_DIRS
 
 
 def test_load_settings_missing_file_returns_defaults(tmp_path):

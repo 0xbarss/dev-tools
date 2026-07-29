@@ -118,3 +118,87 @@ def is_clean(root: Path) -> bool | None:
         return len(out.strip()) == 0
     except GitError:
         return None
+
+
+def blame_line_counts(root: Path, rel_path: str) -> dict[str, int]:
+    """Line-count-by-author for a single file, via `git blame --line-porcelain`.
+
+    Returns {} for files git can't blame (untracked, binary, deleted, etc.)
+    rather than raising -- callers (owners_engine) treat that as "no
+    ownership data" for the file, not a hard failure.
+    """
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    try:
+        out = _run(root, ["blame", "--line-porcelain", "--", rel_path])
+    except GitError:
+        return {}
+    counts: dict[str, int] = {}
+    for line in out.splitlines():
+        if line.startswith("author "):
+            author = line[len("author ") :].strip()
+            counts[author] = counts.get(author, 0) + 1
+    return counts
+
+
+def file_commit_counts(root: Path, rel_paths: list[str] | None = None, since: str | None = None) -> dict[str, int]:
+    """Number of commits touching each file (churn), via `git log --name-only`.
+
+    `since` is a git-recognized date expression (e.g. "90 days ago"). With
+    `rel_paths=None`, every file touched in the range is counted; pass an
+    explicit list to restrict the log walk to those paths (faster on large
+    repos when the caller already knows the candidate set).
+    """
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    args = ["log", "--name-only", "--pretty=format:", "--no-color"]
+    if since:
+        args.extend(["--since", since])
+    if rel_paths:
+        args.append("--")
+        args.extend(rel_paths)
+    out = _run(root, args)
+    counts: dict[str, int] = {}
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        counts[line] = counts.get(line, 0) + 1
+    return counts
+
+
+def list_branches(root: Path, remote: bool = False) -> list[dict]:
+    """Local (or remote-tracking, with `remote=True`) branches with their
+    last commit date/author/subject and whether they're already merged into
+    the current HEAD -- the raw material for `devtools branches --stale`.
+    """
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    ref_prefix = "refs/remotes/" if remote else "refs/heads/"
+    fmt = _LOG_SEP.join(["%(refname:short)", "%(committerdate:iso-strict)", "%(authorname)", "%(subject)"])
+    out = _run(root, ["for-each-ref", f"--format={fmt}", ref_prefix])
+
+    try:
+        merged_out = _run(root, ["branch", "--format=%(refname:short)", "--merged"])
+        merged = {line.strip() for line in merged_out.splitlines() if line.strip()}
+    except GitError:
+        merged = set()
+
+    branches = []
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split(_LOG_SEP)
+        if len(parts) < 4:
+            continue
+        name, date, author, subject = parts[:4]
+        branches.append(
+            {
+                "name": name,
+                "last_commit_date": date,
+                "last_author": author,
+                "last_subject": subject,
+                "merged": name in merged,
+            }
+        )
+    return branches

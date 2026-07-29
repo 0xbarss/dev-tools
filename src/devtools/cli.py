@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from typer.core import TyperGroup
 
 from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
+    branches as branches_cmd,
     bundle as bundle_cmd,
     changelog as changelog_cmd,
     ci as ci_cmd,
@@ -34,7 +36,9 @@ from devtools.commands import (
     dupes as dupes_cmd,
     explain as explain_cmd,
     export as export_cmd,
+    graph as graph_cmd,
     grep as grep_cmd,
+    health as health_cmd,
     history as history_cmd,
     ignore as ignore_cmd,
     index as index_cmd,
@@ -45,6 +49,7 @@ from devtools.commands import (
     marketplace as marketplace_cmd,
     mcp_serve as mcp_serve_cmd,
     notify as notify_cmd,
+    owners as owners_cmd,
     project as project_cmd,
     review as review_cmd,
     sbom as sbom_cmd,
@@ -58,11 +63,47 @@ from devtools.core.exit_codes import SUCCESS
 from devtools.core.history_log import record_run
 from devtools.utils.console import build_output_context
 
+# Click's Group stops parsing group-level options at the first non-option
+# token (the subcommand name); anything after that belongs to the
+# subcommand's own parser. That's the standard, unambiguous behavior for
+# flags a subcommand might redefine with different semantics (e.g. `history
+# --project` filters by project, `collect --format` picks a *content*
+# format -- both distinct from the global `--project`/`--format`). But a
+# handful of global flags are never redefined by any command and are
+# harmless/expected to work no matter where they appear on the command
+# line (`devtools grep foo --json` reads just as naturally as `devtools
+# --json grep foo`). This Group subclass reorders *only* that safe subset
+# ahead of the subcommand before Click's normal parsing runs; every other
+# flag keeps Click's standard "must precede the subcommand" behavior.
+_REORDERABLE_NO_VALUE_FLAGS = {"--json", "--quiet", "-q", "--no-color", "--verbose", "-v"}
+
+
+class _GlobalFlagReorderingGroup(TyperGroup):
+    def parse_args(self, ctx: typer.Context, args: list[str]) -> list[str]:
+        front: list[str] = []
+        rest: list[str] = []
+        stop_reordering = False
+        for token in args:
+            if stop_reordering:
+                rest.append(token)
+                continue
+            if token == "--":
+                stop_reordering = True
+                rest.append(token)
+                continue
+            if token in _REORDERABLE_NO_VALUE_FLAGS:
+                front.append(token)
+            else:
+                rest.append(token)
+        return super().parse_args(ctx, front + rest)
+
+
 app = typer.Typer(
     name="devtools",
     help="A personal, installable developer toolkit for AI-assisted repository workflows.",
     no_args_is_help=True,
     add_completion=False,  # `devtools completion install <shell>` handles this explicitly
+    cls=_GlobalFlagReorderingGroup,
 )
 
 
@@ -153,6 +194,10 @@ app.command("deadcode")(deadcode_cmd.deadcode)
 app.command("dupes")(dupes_cmd.dupes)
 app.command("complexity")(complexity_cmd.complexity)
 app.command("investigate")(investigate_cmd.investigate)
+app.command("owners")(owners_cmd.owners)
+app.command("branches")(branches_cmd.branches)
+app.command("health")(health_cmd.health)
+app.command("graph")(graph_cmd.graph)
 
 # --- sub-apps with their own subcommands -----------------------------------------
 app.add_typer(project_cmd.app, name="project")

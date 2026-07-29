@@ -107,3 +107,66 @@ def test_latest_tag_returns_tag_name(git_repo):
 
 def test_latest_tag_none_on_non_repo(tmp_path):
     assert gitmod.latest_tag(tmp_path) is None
+
+
+def test_blame_line_counts_attributes_every_line_to_the_committer(git_repo):
+    counts = gitmod.blame_line_counts(git_repo, "src/auth.py")
+    assert sum(counts.values()) == len((git_repo / "src" / "auth.py").read_text().splitlines())
+    assert set(counts) == {"Test"}
+
+
+def test_blame_line_counts_empty_for_untracked_file(git_repo):
+    (git_repo / "src" / "untracked.py").write_text("x = 1\n")
+    assert gitmod.blame_line_counts(git_repo, "src/untracked.py") == {}
+
+
+def test_blame_line_counts_empty_on_non_repo(tmp_path):
+    with __import__("pytest").raises(gitmod.GitError):
+        gitmod.blame_line_counts(tmp_path, "whatever.py")
+
+
+def test_file_commit_counts_tracks_churn(git_repo):
+    import subprocess
+
+    (git_repo / "src" / "main.py").write_text("# edited\n")
+    subprocess.run(["git", "add", "-A"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "edit main"], cwd=git_repo, check=True, capture_output=True)
+
+    counts = gitmod.file_commit_counts(git_repo)
+    assert counts["src/main.py"] == 2  # initial commit + the edit
+    assert counts["src/auth.py"] == 1
+
+
+def test_file_commit_counts_respects_path_filter(git_repo):
+    import subprocess
+
+    (git_repo / "src" / "main.py").write_text("# edited\n")
+    subprocess.run(["git", "add", "-A"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "edit main"], cwd=git_repo, check=True, capture_output=True)
+
+    counts = gitmod.file_commit_counts(git_repo, rel_paths=["src/auth.py"])
+    assert "src/main.py" not in counts
+    assert counts["src/auth.py"] == 1
+
+
+def test_list_branches_reports_current_branch_as_merged(git_repo):
+    branches = gitmod.list_branches(git_repo)
+    assert len(branches) == 1
+    b = branches[0]
+    assert b["name"] in ("main", "master")
+    assert b["merged"] is True
+    assert b["last_subject"] == "initial commit"
+
+
+def test_list_branches_flags_unmerged_feature_branch(git_repo):
+    import subprocess
+
+    subprocess.run(["git", "checkout", "-q", "-b", "feature/unmerged"], cwd=git_repo, check=True, capture_output=True)
+    (git_repo / "src" / "feature.py").write_text("x = 1\n")
+    subprocess.run(["git", "add", "-A"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "commit", "-q", "-m", "wip feature"], cwd=git_repo, check=True, capture_output=True)
+    subprocess.run(["git", "checkout", "-q", "-"], cwd=git_repo, check=True, capture_output=True)
+
+    branches = {b["name"]: b for b in gitmod.list_branches(git_repo)}
+    assert "feature/unmerged" in branches
+    assert branches["feature/unmerged"]["merged"] is False

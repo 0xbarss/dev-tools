@@ -11,27 +11,31 @@ import typer
 
 from devtools.commands._shared import fail, resolve_project
 from devtools.core.exit_codes import GENERAL_ERROR, INVALID_USAGE
-from devtools.core.export_engine import load_cached_output, to_csv, to_html_table, tree_to_html
+from devtools.core.export_engine import load_cached_output, to_csv, to_html_table, to_sarif, tree_to_html
 
 app = typer.Typer()
 
-_TABULAR_LIST_KEYS = {"largest_files", "dependencies", "matches", "projects", "rules"}
+_TABULAR_LIST_KEYS = {"largest_files", "dependencies", "matches", "projects", "rules", "findings"}
 
 
 @app.command()
 def export(
     ctx: typer.Context,
-    command: str = typer.Argument(..., help="Which command's cached output to export, e.g. stats, tree, deps, grep."),
+    command: str = typer.Argument(..., help="Which command's cached output to export, e.g. stats, tree, deps, grep, lint."),
     project: Optional[str] = typer.Argument(None, help="Project whose cached output to export."),
-    fmt: str = typer.Option(..., "--format", help="Target format: csv or html."),
+    fmt: str = typer.Option(..., "--format", help="Target format: csv, html, or sarif (sarif is lint-only)."),
     out: Optional[Path] = typer.Option(None, "--out", help="Output file path (default: <project>_<command>.<ext> in cwd)."),
 ) -> None:
-    """Convert a previously cached command output into CSV or HTML."""
+    """Convert a previously cached command output into CSV, HTML, or (for
+    `lint`) SARIF -- e.g. for GitHub code scanning or another SARIF-reading
+    dashboard."""
     state = ctx.obj
     proj = resolve_project(ctx, project)
 
-    if fmt not in ("csv", "html"):
-        fail(ctx, INVALID_USAGE, "--format must be one of: csv, html")
+    if fmt not in ("csv", "html", "sarif"):
+        fail(ctx, INVALID_USAGE, "--format must be one of: csv, html, sarif")
+    if fmt == "sarif" and command != "lint":
+        fail(ctx, INVALID_USAGE, "--format sarif is only supported for `lint` output.")
 
     data = load_cached_output(command, proj.name)
     if data is None:
@@ -43,7 +47,11 @@ def export(
 
     title = f"{proj.name} - {command}"
 
-    if command == "tree" and isinstance(data, dict) and data.get("type") == "dir":
+    if fmt == "sarif":
+        findings = data.get("findings", []) if isinstance(data, dict) else []
+        content = to_sarif(findings)
+        ext = "sarif"
+    elif command == "tree" and isinstance(data, dict) and data.get("type") == "dir":
         if fmt == "csv":
             fail(ctx, INVALID_USAGE, "`tree` output isn't tabular; only --format html is supported for it.")
         content = tree_to_html(title, data)

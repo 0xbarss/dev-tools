@@ -48,26 +48,30 @@ below.
 | `context` | A lighter, task-scoped sibling of `bundle` for a specific question |
 | `grep` | Fast, project-aware literal/regex search |
 | `tree` | A better directory tree (depth limits, `--source-only`, markdown/JSON) |
-| `stats` | File/line/token counts, language distribution, largest files, duplicates |
+| `stats` | File/line/token counts, language distribution, largest files, duplicates; `--hotspots` ranks files by churn x complexity |
 | `doctor` | Health checks: README/LICENSE, tests, large binaries, broken symlinks, empty folders, duplicates, `.gitignore` completeness (`--fix`, `--ci`) |
 | `deps` | Dependency analysis for Python, Node, Rust, Go, Java, and Flutter |
 | `clean` | Safe cleanup of `__pycache__`, `node_modules`, `build/`, `dist/`, and friends |
 | `search` | Concept search (keyword/synonym expansion today; local embeddings later, opt-in) |
 | `ignore` | Manage the shared ignore rules without hand-editing `config.toml` |
-| `export` | Turn a previous command's output into CSV or HTML |
+| `export` | Turn a previous command's output into CSV, HTML, or (for `lint`) SARIF |
 | `alias` | Save and run shortcuts for command chains |
 | `history` | Append-only log of past runs |
 | `completion` | Install/show shell completion (bash/zsh/fish) |
 | `update` | Opt-in self-update check (never runs automatically) |
 | `sbom` | Generate a CycloneDX-style SBOM from detected manifests |
 | `license-check` | Best-effort local dependency license report |
-| `lint` | Multi-language lint orchestrator (shells out to installed linters) |
+| `lint` | Multi-language lint orchestrator (shells out to installed linters); export findings as SARIF |
 | `changelog` | Group commits by Conventional Commit type into a changelog |
 | `explain` | One-shot AI explanation of a file or symbol |
 | `review` | AI-assisted diff/PR review ("suggestions, not blockers") |
 | `deadcode` | Unused imports and module-level definitions (advisory) |
 | `dupes` | Exact-file and duplicate-code-block detection |
 | `complexity` | Cyclomatic-complexity report for Python functions |
+| `owners` | Per-file top author and ownership share, from `git blame` |
+| `branches` | Local branch ages/authors/merged status; `--stale` flags branches safe to review for deletion |
+| `health` | Single 0-100 score rolling up doctor/lint/complexity/duplication (`--ci`, `--min-score`) |
+| `graph` | Internal Python module dependency graph, as Mermaid or DOT, with fan-in ranking |
 | `investigate` | Bounded, autonomous search → read → finish investigation loop over a question |
 | `notify` | Configure and send Slack/Teams/Jira/generic webhook notifications |
 | `compliance report` | Audit-ready rollup (hygiene + licensing + dead code) with a 0–100 score, Markdown/HTML/JSON |
