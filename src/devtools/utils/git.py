@@ -43,6 +43,16 @@ def changed_files_since(root: Path, ref: str) -> list[Path]:
     return [root / line.strip() for line in out.splitlines() if line.strip()]
 
 
+def checkout_branch(root: Path, branch: str) -> None:
+    """`git checkout <branch>` (used by `devtools snapshot restore --checkout`,
+    backlog #32). Deliberately narrow: doesn't create branches, doesn't force,
+    doesn't stash -- if the checkout would fail, the caller sees git's own
+    error rather than devtools silently doing something more aggressive."""
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    _run(root, ["checkout", branch])
+
+
 def current_branch(root: Path) -> str | None:
     if not is_git_repo(root):
         return None
@@ -88,6 +98,33 @@ def log_commits(root: Path, since: str | None = None, until: str = "HEAD") -> li
             }
         )
     return commits
+
+
+def numstat_since(root: Path, ref: str, paths: list[str] | None = None) -> list[dict]:
+    """Per-file added/removed line counts for the working tree vs `ref`
+    (used by `devtools pr describe`, backlog #19) -- the diff-range sibling
+    of `author_numstat`'s per-commit-log numstat."""
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    args = ["diff", "--numstat", ref, "--"]
+    if paths:
+        args.extend(paths)
+    out = _run(root, args)
+    files = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3:
+            continue
+        added, deleted, path = parts
+        files.append(
+            {
+                "path": path,
+                "additions": int(added) if added.isdigit() else 0,
+                "deletions": int(deleted) if deleted.isdigit() else 0,
+                "binary": not added.isdigit(),
+            }
+        )
+    return files
 
 
 def diff_since(root: Path, ref: str, unified: int = 3, paths: list[str] | None = None) -> str:
@@ -165,6 +202,81 @@ def file_commit_counts(root: Path, rel_paths: list[str] | None = None, since: st
             continue
         counts[line] = counts.get(line, 0) + 1
     return counts
+
+
+def author_numstat(root: Path, since: str | None = None, until: str = "HEAD") -> list[dict]:
+    """Per-commit author + line-change stats, for `devtools contributors`
+    (backlog #16). `since` accepts either a git date expression ("90 days
+    ago", "2024-01-01") or a ref, since `git log --since` happily ignores
+    an argument that isn't a recognizable date -- callers that want a
+    strict ref..until range should use `log_commits` instead.
+    """
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    fmt = "\x1e" + _LOG_SEP.join(["%H", "%an", "%ae", "%aI"])
+    args = ["log", until, f"--pretty=format:{fmt}", "--numstat"]
+    if since:
+        args.extend(["--since", since])
+    out = _run(root, args)
+
+    commits = []
+    for record in out.split("\x1e"):
+        record = record.strip("\n")
+        if not record.strip():
+            continue
+        lines = record.lstrip("\n").splitlines()
+        header = lines[0].split(_LOG_SEP)
+        if len(header) < 4:
+            continue
+        commit_hash, author_name, author_email, date = header[:4]
+        additions = 0
+        deletions = 0
+        files_changed = 0
+        for line in lines[1:]:
+            parts = line.split("\t")
+            if len(parts) != 3:
+                continue
+            added, deleted, _path = parts
+            files_changed += 1
+            if added.isdigit():
+                additions += int(added)
+            if deleted.isdigit():
+                deletions += int(deleted)
+        commits.append(
+            {
+                "hash": commit_hash,
+                "author_name": author_name,
+                "author_email": author_email,
+                "date": date,
+                "additions": additions,
+                "deletions": deletions,
+                "files_changed": files_changed,
+            }
+        )
+    return commits
+
+
+def show_commit(root: Path, sha: str, unified: int = 3) -> dict:
+    """A single commit's metadata + patch text, for `devtools commit explain <sha>`."""
+    if not is_git_repo(root):
+        raise GitError(f"{root} is not a git repository")
+    fmt = _LOG_SEP.join(["%H", "%h", "%an", "%ae", "%aI", "%s", "%b"])
+    meta_out = _run(root, ["show", "-s", f"--pretty=format:{fmt}", sha])
+    parts = meta_out.split(_LOG_SEP)
+    if len(parts) < 7:
+        raise GitError(f"Could not read commit metadata for {sha!r}")
+    commit_hash, short_hash, author_name, author_email, date, subject, body = parts[:7]
+    patch = _run(root, ["show", f"-U{unified}", "--pretty=format:", sha])
+    return {
+        "hash": commit_hash,
+        "short_hash": short_hash,
+        "author_name": author_name,
+        "author_email": author_email,
+        "date": date,
+        "subject": subject,
+        "body": body.strip("\n"),
+        "patch": patch.strip("\n"),
+    }
 
 
 def list_branches(root: Path, remote: bool = False) -> list[dict]:

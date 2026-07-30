@@ -103,3 +103,84 @@ def issue_url(issue_id: str, tracker_base_url: str | None) -> str | None:
     if not tracker_base_url:
         return None
     return f"{tracker_base_url.rstrip('/')}/{issue_id}"
+
+
+# --------------------------------------------------------------------------- #
+# `devtools pr describe` (backlog #19, P1) — draft a PR body from the diff.
+#
+# Deliberately deterministic/template-based rather than requiring
+# `llm_client.py`: composes three things the toolkit already computes
+# (Conventional-Commit-classified commit log via `changelog_engine`,
+# per-file diff stats, and issue references via `link_issues` above) into
+# one Markdown draft. This keeps `pr describe` usable with zero AI
+# configuration -- matching the project's "sane defaults, no surprises"
+# philosophy -- while still being a genuinely useful starting draft.
+# --------------------------------------------------------------------------- #
+
+
+@dataclass
+class PrDescription:
+    since: str
+    summary_bullets: list[str] = field(default_factory=list)
+    files_changed: list[dict] = field(default_factory=list)
+    issue_ids: list[str] = field(default_factory=list)
+    total_additions: int = 0
+    total_deletions: int = 0
+
+
+def describe_pr(root: Path, since: str = "main", paths: list[str] | None = None) -> PrDescription:
+    from devtools.core.changelog_engine import classify_commit
+
+    commits = git.log_commits(root, since=since, until="HEAD")
+    bullets: list[str] = []
+    for commit in commits:
+        section, scope, description, breaking = classify_commit(commit["subject"])
+        prefix = f"**{section}:** " if section != "Other" else ""
+        scope_note = f"({scope}) " if scope else ""
+        marker = " **BREAKING**" if breaking else ""
+        bullets.append(f"{prefix}{scope_note}{description}{marker}")
+
+    files = git.numstat_since(root, since, paths=paths)
+    total_additions = sum(f["additions"] for f in files)
+    total_deletions = sum(f["deletions"] for f in files)
+
+    issues = link_issues(root, since=since, until="HEAD")
+
+    return PrDescription(
+        since=since,
+        summary_bullets=bullets,
+        files_changed=files,
+        issue_ids=issues.issue_ids,
+        total_additions=total_additions,
+        total_deletions=total_deletions,
+    )
+
+
+def render_pr_description_markdown(desc: PrDescription, tracker_base_url: str | None = None) -> str:
+    lines = ["## Summary", ""]
+    if desc.summary_bullets:
+        lines.extend(f"- {b}" for b in desc.summary_bullets)
+    else:
+        lines.append(f"_No commits found since `{desc.since}`._")
+    lines.append("")
+
+    lines.append("## Changes")
+    lines.append("")
+    lines.append(f"`{len(desc.files_changed)}` file(s) changed, `+{desc.total_additions}/-{desc.total_deletions}` lines.")
+    lines.append("")
+    for f in desc.files_changed[:50]:
+        marker = " _(binary)_" if f["binary"] else f" (+{f['additions']}/-{f['deletions']})"
+        lines.append(f"- `{f['path']}`{marker}")
+    if len(desc.files_changed) > 50:
+        lines.append(f"- _... and {len(desc.files_changed) - 50} more file(s)_")
+    lines.append("")
+
+    if desc.issue_ids:
+        lines.append("## Related issues")
+        lines.append("")
+        for issue_id in desc.issue_ids:
+            url = issue_url(issue_id, tracker_base_url)
+            lines.append(f"- {url or issue_id}")
+        lines.append("")
+
+    return "\n".join(lines)

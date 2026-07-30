@@ -1,18 +1,22 @@
 """`devtools health` — unified 0-100 health score (backlog #13). Stays
 thin per the existing `commands/` convention; all real logic lives in
-`core/health_engine.py`."""
+`core/health_engine.py`. `--external-report` (backlog #46) folds an
+imported SARIF/SAST report into the score as a fifth category.
+"""
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 import typer
 
-from devtools.commands._shared import build_ignore_rules, resolve_project
-from devtools.core.exit_codes import CHECK_FAILED
+from devtools.commands._shared import build_ignore_rules, fail, resolve_project
+from devtools.core.exit_codes import CHECK_FAILED, INVALID_USAGE
 from devtools.core.export_engine import cache_output
 from devtools.core.health_engine import compute_health
 from devtools.core.output import render_table
+from devtools.core.sarif_import import ExternalReportError, load_external_report
 
 app = typer.Typer()
 
@@ -35,15 +39,25 @@ def health(
     project: Optional[str] = typer.Argument(None, help="Project to score."),
     ci: bool = typer.Option(False, "--ci", help="Exit 5 if the overall score is below --min-score."),
     min_score: int = typer.Option(70, "--min-score", help="Threshold used by --ci."),
+    external_report: Optional[Path] = typer.Option(None, "--external-report", help="Path to a SARIF file or devtools' generic {tool, issues:[...]} JSON shape (e.g. from `devtools sonar-import`) to fold in as a fifth category."),
 ) -> None:
-    """Roll up doctor, lint, complexity, and duplication findings into a
-    single 0-100 score -- a quick "is this repo trending healthy" check."""
+    """Roll up doctor, lint, complexity, and duplication findings (and
+    optionally an imported external SAST report) into a single 0-100
+    score -- a quick "is this repo trending healthy" check."""
     state = ctx.obj
     proj = resolve_project(ctx, project)
     rules = build_ignore_rules(ctx, proj)
     ignored_dirs = state.settings.ignored_dirs_for(proj.name)
 
-    report = compute_health(proj.resolved_path, rules, ignored_dirs)
+    external = None
+    if external_report is not None:
+        try:
+            external = load_external_report(external_report)
+        except ExternalReportError as exc:
+            fail(ctx, INVALID_USAGE, str(exc))
+            return
+
+    report = compute_health(proj.resolved_path, rules, ignored_dirs, external_report=external)
     overall = report.overall_score
     grade = _grade(overall)
 

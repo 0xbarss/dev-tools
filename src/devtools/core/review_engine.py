@@ -28,6 +28,19 @@ _SYSTEM_PROMPT = (
     '"comment": "<one or two sentences>"}]}. No prose outside the JSON.'
 )
 
+_SECURITY_SYSTEM_PROMPT = (
+    "You are doing a SECURITY-focused review of a git diff, as an advisory pass only "
+    "(a separate, deterministic pattern-based scan already ran and is reported alongside "
+    "yours — don't repeat obvious secret/eval/pickle findings, focus on things pattern "
+    "matching can't catch: auth/authorization logic, injection via non-obvious paths, "
+    "unsafe deserialization patterns, missing input validation, insecure defaults). "
+    "Be clear this is advisory, not a certification of security. "
+    "Respond with ONLY a JSON object of the shape: "
+    '{"summary": "<2-3 sentence overview>", "comments": '
+    '[{"file": "path", "line": <int or null>, "severity": "bug|style|missing_test|question", '
+    '"comment": "<one or two sentences>"}]}. No prose outside the JSON.'
+)
+
 _MAX_DIFF_CHARS = 60_000
 
 
@@ -69,7 +82,7 @@ def _extract_json_object(text: str) -> dict | None:
         return None
 
 
-def review(root: Path, client: LLMClient, since: str, paths: list[str] | None = None) -> ReviewReport:
+def review(root: Path, client: LLMClient, since: str, paths: list[str] | None = None, security: bool = False) -> ReviewReport:
     diff = gitutil.diff_since(root, since, paths=paths)
     if not diff.strip():
         raise ValueError(f"No changes since '{since}' — nothing to review.")
@@ -77,7 +90,8 @@ def review(root: Path, client: LLMClient, since: str, paths: list[str] | None = 
         diff = diff[:_MAX_DIFF_CHARS] + "\n... (diff truncated for length) ..."
 
     prompt = f"Review this diff (against `{since}`):\n\n```diff\n{diff}\n```"
-    response = client.complete(prompt, system=_SYSTEM_PROMPT)
+    system_prompt = _SECURITY_SYSTEM_PROMPT if security else _SYSTEM_PROMPT
+    response = client.complete(prompt, system=system_prompt)
 
     parsed = _extract_json_object(response)
     if parsed is None:

@@ -20,9 +20,14 @@ from devtools.core.doctor_checks import run_all_checks
 from devtools.core.dupes_engine import find_code_duplicates
 from devtools.core.ignore_rules import IgnoreRules
 from devtools.core.lint_engine import run_lint
+from devtools.core.sarif_import import ExternalScanReport
 
-# Point budget per category; must sum to 100.
+# Point budget per category; must sum to 100. A second table applies when an
+# external SAST report is folded in (backlog #46) so the total still sums to
+# 100 rather than health scores becoming incomparable before/after adopting
+# an external scanner.
 _WEIGHTS = {"doctor": 25, "lint": 35, "complexity": 20, "duplication": 20}
+_WEIGHTS_WITH_EXTERNAL = {"doctor": 20, "lint": 30, "complexity": 15, "duplication": 15, "external": 20}
 
 _COMPLEXITY_THRESHOLD = 10  # matches `devtools complexity`'s own default
 _DUPLICATION_MIN_LINES = 6  # matches `devtools dupes --code`'s own default
@@ -45,8 +50,7 @@ class HealthReport:
         return sum(c.score for c in self.categories)
 
 
-def _doctor_category(root: Path, ignore_rules: IgnoreRules, ignored_dirs: list[str]) -> HealthCategory:
-    weight = _WEIGHTS["doctor"]
+def _doctor_category(root: Path, ignore_rules: IgnoreRules, ignored_dirs: list[str], weight: int) -> HealthCategory:
     issues = run_all_checks(root, ignore_rules, ignored_dirs)
     errors = sum(1 for i in issues if i.severity == "error")
     warnings = sum(1 for i in issues if i.severity == "warning")
@@ -60,8 +64,7 @@ def _doctor_category(root: Path, ignore_rules: IgnoreRules, ignored_dirs: list[s
     return HealthCategory("doctor", score, weight, summary)
 
 
-def _lint_category(root: Path) -> HealthCategory:
-    weight = _WEIGHTS["lint"]
+def _lint_category(root: Path, weight: int) -> HealthCategory:
     report = run_lint(root)
     findings = report.findings
     errors = sum(1 for f in findings if f.severity == "error")
@@ -78,8 +81,7 @@ def _lint_category(root: Path) -> HealthCategory:
     return HealthCategory("lint", score, weight, summary)
 
 
-def _complexity_category(root: Path, ignore_rules: IgnoreRules) -> HealthCategory:
-    weight = _WEIGHTS["complexity"]
+def _complexity_category(root: Path, ignore_rules: IgnoreRules, weight: int) -> HealthCategory:
     files = compute_complexity(root, ignore_rules)
     functions = [fn for f in files for fn in f.functions]
     if not functions:
@@ -91,8 +93,7 @@ def _complexity_category(root: Path, ignore_rules: IgnoreRules) -> HealthCategor
     return HealthCategory("complexity", score, weight, summary)
 
 
-def _duplication_category(root: Path, ignore_rules: IgnoreRules) -> HealthCategory:
-    weight = _WEIGHTS["duplication"]
+def _duplication_category(root: Path, ignore_rules: IgnoreRules, weight: int) -> HealthCategory:
     groups = find_code_duplicates(root, ignore_rules, min_lines=_DUPLICATION_MIN_LINES)
     duplicate_lines = sum(g.lines * len(g.occurrences) for g in groups)
     if duplicate_lines == 0:
@@ -107,12 +108,30 @@ def _duplication_category(root: Path, ignore_rules: IgnoreRules) -> HealthCatego
     return HealthCategory("duplication", score, weight, summary)
 
 
-def compute_health(root: Path, ignore_rules: IgnoreRules, ignored_dirs: list[str]) -> HealthReport:
-    return HealthReport(
-        categories=[
-            _doctor_category(root, ignore_rules, ignored_dirs),
-            _lint_category(root),
-            _complexity_category(root, ignore_rules),
-            _duplication_category(root, ignore_rules),
-        ]
-    )
+def _external_category(report: ExternalScanReport, weight: int) -> HealthCategory:
+    penalty = min(weight, report.error_count * 4 + report.warning_count * 1)
+    score = weight - penalty
+    tools = ", ".join(report.tools) if report.tools else "external scanner"
+    if not report.findings:
+        summary = f"No findings imported from {tools}."
+    else:
+        summary = f"{report.error_count} error(s), {report.warning_count} warning(s) imported from {tools} ({Path(report.source_path).name})."
+    return HealthCategory("external", score, weight, summary)
+
+
+def compute_health(
+    root: Path,
+    ignore_rules: IgnoreRules,
+    ignored_dirs: list[str],
+    external_report: ExternalScanReport | None = None,
+) -> HealthReport:
+    weights = _WEIGHTS_WITH_EXTERNAL if external_report is not None else _WEIGHTS
+    categories = [
+        _doctor_category(root, ignore_rules, ignored_dirs, weights["doctor"]),
+        _lint_category(root, weights["lint"]),
+        _complexity_category(root, ignore_rules, weights["complexity"]),
+        _duplication_category(root, ignore_rules, weights["duplication"]),
+    ]
+    if external_report is not None:
+        categories.append(_external_category(external_report, weights["external"]))
+    return HealthReport(categories=categories)

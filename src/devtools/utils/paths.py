@@ -102,3 +102,24 @@ def saved_searches_file_path() -> Path:
 def prompt_templates_file_path() -> Path:
     """User-defined reusable AI prompt templates (`devtools prompt`, backlog #31)."""
     return config_dir() / "prompt_templates.json"
+
+
+def snapshots_file_path() -> Path:
+    """Saved workspace snapshots (`devtools snapshot`, backlog #32)."""
+    return config_dir() / "snapshots.json"
+
+
+def daemon_dir() -> Path:
+    """Where per-project daemon pidfiles/logs (`devtools daemon`, backlog #51) live."""
+    override = os.environ.get("DEVTOOLS_DAEMON_DIR")
+    if override:
+        return Path(override).expanduser()
+    return cache_dir() / "daemon"
+
+
+def daemon_pid_file_path(project_name: str) -> Path:
+    return daemon_dir() / f"{project_name}.pid"
+
+
+def daemon_log_file_path(project_name: str) -> Path:
+    return daemon_dir() / f"{project_name}.log"

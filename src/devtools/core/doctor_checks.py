@@ -28,6 +28,10 @@ class DoctorIssue:
     message: str
     fixable: bool = False
     fix_hint: str | None = None
+    # Populated for checks scoped to one specific file, so the TUI's
+    # drill-down (backlog #42) can open that file directly instead of
+    # having to regex the file path back out of `message`.
+    path: str | None = None
 
 
 def check_missing_readme(root: Path) -> DoctorIssue | None:
@@ -65,6 +69,7 @@ def check_large_binaries(root: Path, ignore_rules: IgnoreRules, threshold: int =
                     "large_binary",
                     "warning",
                     f"{entry.rel_path} is a {entry.size / (1024*1024):.1f}MB binary tracked in the project.",
+                    path=entry.rel_path,
                 )
             )
     return issues
@@ -83,7 +88,8 @@ def check_broken_symlinks(root: Path, ignore_rules: IgnoreRules) -> list[DoctorI
             if ignore_rules.is_ignored(child):
                 continue
             if child.is_symlink() and not child.exists():
-                issues.append(DoctorIssue("broken_symlink", "error", f"Broken symlink: {child.relative_to(root)}"))
+                rel = str(child.relative_to(root))
+                issues.append(DoctorIssue("broken_symlink", "error", f"Broken symlink: {rel}", path=rel))
             elif child.is_dir() and not child.is_symlink():
                 stack.append(child)
     return issues

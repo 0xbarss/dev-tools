@@ -34,6 +34,11 @@ _TYPE_SECTIONS: list[tuple[str, str]] = [
 _SECTION_BY_TYPE = dict(_TYPE_SECTIONS)
 _SECTION_ORDER = [section for _type, section in _TYPE_SECTIONS] + ["Other"]
 
+# Public so other engines that care about "is this a Conventional Commit"
+# (e.g. `commit_lint_engine.py`) share one definition of "known type"
+# instead of maintaining a second list that can drift out of sync.
+CONVENTIONAL_TYPES = [t for t, _section in _TYPE_SECTIONS]
+
 _CONVENTIONAL_RE = re.compile(
     r"^(?P<type>[a-zA-Z]+)(?:\((?P<scope>[^)]*)\))?(?P<breaking>!)?:\s*(?P<description>.+)$"
 )

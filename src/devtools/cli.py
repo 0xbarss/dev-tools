@@ -26,13 +26,18 @@ from devtools.commands import (
     ci as ci_cmd,
     clean as clean_cmd,
     collect as collect_cmd,
+    commit as commit_cmd,
+    commit_lint as commit_lint_cmd,
     completion as completion_cmd,
     complexity as complexity_cmd,
     compliance as compliance_cmd,
     config as config_cmd,
     context as context_cmd,
+    contributors as contributors_cmd,
+    daemon as daemon_cmd,
     deadcode as deadcode_cmd,
     deps as deps_cmd,
+    docs as docs_cmd,
     doctor as doctor_cmd,
     dupes as dupes_cmd,
     explain as explain_cmd,
@@ -49,6 +54,7 @@ from devtools.commands import (
     lint as lint_cmd,
     marketplace as marketplace_cmd,
     mcp_serve as mcp_serve_cmd,
+    new as new_cmd,
     notify as notify_cmd,
     owners as owners_cmd,
     plugin as plugin_cmd,
@@ -56,10 +62,14 @@ from devtools.commands import (
     project as project_cmd,
     prompt as prompt_cmd,
     review as review_cmd,
+    run as run_cmd,
     sbom as sbom_cmd,
     search as search_cmd,
+    snapshot as snapshot_cmd,
     snippet as snippet_cmd,
+    sonar_import as sonar_import_cmd,
     stats as stats_cmd,
+    summarize as summarize_cmd,
     tree as tree_cmd,
     ui as ui_cmd,
     update as update_cmd,
@@ -221,6 +231,12 @@ app.command("branches")(branches_cmd.branches)
 app.command("health")(health_cmd.health)
 app.command("graph")(graph_cmd.graph)
 app.command("watch")(watch_cmd.watch)
+app.command("summarize")(summarize_cmd.summarize)
+app.command("commit-lint")(commit_lint_cmd.commit_lint)
+app.command("contributors")(contributors_cmd.contributors)
+app.command("sonar-import")(sonar_import_cmd.sonar_import)
+app.command("run")(run_cmd.run)
+app.command("new")(new_cmd.new)
 
 # --- P3 backlog: issue linking (#20) ----------------------------------------
 app.add_typer(pr_cmd.app, name="pr")
@@ -237,6 +253,10 @@ app.add_typer(notify_cmd.app, name="notify")
 app.add_typer(compliance_cmd.app, name="compliance")
 app.add_typer(marketplace_cmd.app, name="marketplace")
 app.add_typer(plugin_cmd.app, name="plugin")
+app.add_typer(docs_cmd.app, name="docs")
+app.add_typer(commit_cmd.app, name="commit")
+app.add_typer(snapshot_cmd.app, name="snapshot")
+app.add_typer(daemon_cmd.app, name="daemon")
 # --- P3 backlog: prompt template library (#31), snippet manager (#34),
 # bookmarks (#37) --------------------------------------------------------
 app.add_typer(prompt_cmd.app, name="prompt")
