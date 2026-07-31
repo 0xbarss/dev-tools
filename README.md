@@ -136,9 +136,14 @@ devtools index clear backend                          # or: --rag, before a clea
 **Why:** Tab-completing project names and flags is a lot faster than typing them out, especially with dozens of commands.
 
 ### `update`
-**What:** Checks for (or installs) a newer devtools release. **Never runs automatically.**
-**Use it:** `devtools update` (check), `devtools update --install` (apply)
-**Why:** Deliberately opt-in — a CLI silently updating itself mid-workflow is a surprise nobody asked for.
+**What:** Reinstalls devtools from a local source checkout via `uv tool install "<source>[<extras>]"`, picking up any local code changes. There's no published package/registry for devtools to check against — it's a personal, locally-developed toolkit — so this rebuilds and reinstalls from disk rather than checking a version index. **Never runs automatically.**
+**Use it:**
+```bash
+devtools update --check              # compare the checkout's pyproject.toml version to what's installed, no install
+devtools update                      # uv tool install "<update_source_path>[<update_extras>]"
+devtools update --source ~/other-checkout   # one-off: use a different checkout instead of the configured default
+```
+**Why:** Deliberately opt-in — a CLI silently updating itself mid-workflow is a surprise nobody asked for. `update_source_path` (default `/mnt/data6/MyFiles/Projects/devtools`) and `update_extras` (default `dev,tui,mcp`) are both configurable: `devtools config set update_source_path <path>` / `devtools config set update_extras dev,tui`. Requires `allow_network = true` (dependency resolution needs it) and `uv` on PATH.
 
 ---
 

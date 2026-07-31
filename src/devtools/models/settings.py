@@ -79,6 +79,15 @@ class Settings(BaseModel):
     # "https://org.atlassian.net/browse". None means IDs are printed as-is.
     issue_tracker_url: str | None = None
 
+    # `devtools update` reinstalls from a local source checkout via
+    # `uv tool install "<update_source_path>[<update_extras>]"` -- there's no
+    # published package to check a registry for, since this is a personal,
+    # locally-developed toolkit. Both are just this machine's defaults;
+    # override with `devtools config set update_source_path <path>` (or
+    # `--source` for one-off use from a different checkout).
+    update_source_path: str = "/mnt/data6/MyFiles/Projects/devtools"
+    update_extras: list[str] = Field(default_factory=lambda: ["dev", "tui", "mcp"])
+
     def ignored_dirs_for(self, project_name: str | None) -> list[str]:
         """ignored_dirs is additive: global list + that project's overrides."""
         combined = list(self.ignored_dirs)
