@@ -30,6 +30,27 @@ DEFAULT_IGNORED_DIRS = [
     "htmlcov", ".cache",
 ]
 
+# File-level build-artifact/cache patterns. DEFAULT_IGNORED_DIRS only prunes
+# whole directories by name, so a compiled/generated file sitting *outside*
+# one of those directories (a stray .pyc next to its .py, a checked-in
+# minified bundle, an OS cache file) would otherwise still get scanned by
+# collect/bundle/grep/tree/stats. Patterns are bare gitignore-style globs
+# (no directory wrapping needed — pathspec matches these at any depth).
+DEFAULT_IGNORED_FILE_PATTERNS = [
+    # Python bytecode
+    "*.pyc", "*.pyo", "*.pyd",
+    # Compiled/native objects
+    "*.o", "*.obj", "*.so", "*.dylib", "*.dll", "*.a", "*.lib",
+    # JVM bytecode
+    "*.class",
+    # Minified/bundled web build output + source maps
+    "*.min.js", "*.min.css", "*.map",
+    # WebAssembly build output
+    "*.wasm",
+    # OS-generated cache/junk files
+    ".DS_Store", "Thumbs.db",
+]
+
 
 class ProjectOverride(BaseModel):
     ignored_dirs: list[str] = Field(default_factory=list)
@@ -50,6 +71,7 @@ class Settings(BaseModel):
     ai_model: str | None = None
 
     ignored_dirs: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_DIRS))
+    ignored_file_patterns: list[str] = Field(default_factory=lambda: list(DEFAULT_IGNORED_FILE_PATTERNS))
     project_overrides: dict[str, ProjectOverride] = Field(default_factory=dict)
 
     # Base URL used to turn bare issue IDs found by `devtools pr link-issues`

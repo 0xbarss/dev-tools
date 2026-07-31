@@ -48,3 +48,31 @@ def test_project_override_dirs_are_combined_with_global(sample_repo):
     files = {p.relative_to(sample_repo).as_posix() for p in rules.filtered_walk()}
     assert "legacy/old.py" not in files
     assert "node_modules/pkg/index.js" not in files
+
+
+def test_base_ignored_patterns_catch_stray_build_artifacts(sample_repo):
+    # A compiled/generated file sitting *outside* any of the named cache
+    # directories DEFAULT_IGNORED_DIRS already prunes -- exactly what
+    # base_ignored_patterns exists to catch.
+    (sample_repo / "src" / "leftover.pyc").write_text("bytecode-ish\n")
+    (sample_repo / "src" / "bundle.min.js").write_text("!function(){}();\n")
+    (sample_repo / ".DS_Store").write_text("junk\n")
+
+    rules = IgnoreRules.build(
+        sample_repo,
+        base_ignored_dirs=[],
+        base_ignored_patterns=["*.pyc", "*.min.js", ".DS_Store"],
+    )
+    files = {p.relative_to(sample_repo).as_posix() for p in rules.filtered_walk()}
+    assert "src/leftover.pyc" not in files
+    assert "src/bundle.min.js" not in files
+    assert ".DS_Store" not in files
+    assert "src/main.py" in files
+
+
+def test_base_ignored_patterns_defaults_to_empty(sample_repo):
+    # Omitting base_ignored_patterns entirely (existing call sites/tests)
+    # must not change behavior.
+    rules = IgnoreRules.build(sample_repo, base_ignored_dirs=["node_modules"])
+    files = {p.relative_to(sample_repo).as_posix() for p in rules.filtered_walk()}
+    assert "src/main.py" in files

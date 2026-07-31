@@ -133,7 +133,7 @@ class DashboardScreen(Screen):
         root = self.project.resolved_path
         settings = cfgmod.load_settings()
         ignored_dirs = settings.ignored_dirs_for(self.project.name)
-        rules = IgnoreRules.build(root=root, base_ignored_dirs=ignored_dirs)
+        rules = IgnoreRules.build(root=root, base_ignored_dirs=ignored_dirs, base_ignored_patterns=settings.ignored_file_patterns)
 
         stats = compute_stats(root, rules, top=5)
         health = compute_health(root, rules, ignored_dirs)
@@ -237,7 +237,7 @@ class CommandPaletteScreen(Screen):
         root = self.project.resolved_path
         settings = cfgmod.load_settings()
         ignored_dirs = settings.ignored_dirs_for(self.project.name)
-        rules = IgnoreRules.build(root=root, base_ignored_dirs=ignored_dirs)
+        rules = IgnoreRules.build(root=root, base_ignored_dirs=ignored_dirs, base_ignored_patterns=settings.ignored_file_patterns)
 
         try:
             if name == "stats":

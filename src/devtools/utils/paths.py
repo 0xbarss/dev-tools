@@ -65,6 +65,15 @@ def index_db_path(project_name: str) -> Path:
     return index_dir() / f"{project_name}.sqlite3"
 
 
+def rag_index_db_path(project_name: str) -> Path:
+    """Where the persistent, chunk-level RAG index (proposal deep-dive #25,
+    `devtools ask` / `devtools index build --rag`) is stored -- deliberately
+    a separate database file from `index_db_path`'s whole-file index, since
+    the two have different schemas (whole-file vectors vs. chunked text +
+    vectors) and independent lifecycles."""
+    return index_dir() / f"{project_name}_rag.sqlite3"
+
+
 def notify_targets_file_path() -> Path:
     """Where configured notification webhook targets (`devtools notify`) live."""
     return config_dir() / "notifications.json"

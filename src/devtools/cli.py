@@ -19,6 +19,7 @@ from typer.core import TyperGroup
 from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
+    ask as ask_cmd,
     bookmark as bookmark_cmd,
     branches as branches_cmd,
     bundle as bundle_cmd,
@@ -41,6 +42,7 @@ from devtools.commands import (
     doctor as doctor_cmd,
     dupes as dupes_cmd,
     explain as explain_cmd,
+    expand as expand_cmd,
     export as export_cmd,
     graph as graph_cmd,
     grep as grep_cmd,
@@ -202,6 +204,7 @@ def main(
 # collect api` rather than nesting as `devtools collect collect api`.
 app.command("init")(init_cmd.init)
 app.command("collect")(collect_cmd.collect)
+app.command("expand")(expand_cmd.expand)
 app.command("bundle")(bundle_cmd.bundle)
 app.command("context")(context_cmd.context)
 app.command("grep")(grep_cmd.grep)
@@ -237,6 +240,7 @@ app.command("contributors")(contributors_cmd.contributors)
 app.command("sonar-import")(sonar_import_cmd.sonar_import)
 app.command("run")(run_cmd.run)
 app.command("new")(new_cmd.new)
+app.command("ask")(ask_cmd.ask)
 
 # --- P3 backlog: issue linking (#20) ----------------------------------------
 app.add_typer(pr_cmd.app, name="pr")

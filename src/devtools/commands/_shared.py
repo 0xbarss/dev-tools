@@ -58,6 +58,7 @@ def build_ignore_rules(
     return IgnoreRules.build(
         root=project.resolved_path,
         base_ignored_dirs=ignored_dirs,
+        base_ignored_patterns=state.settings.ignored_file_patterns,
         extra_excludes=extra_excludes,
         use_gitignore=use_gitignore,
     )

@@ -40,6 +40,7 @@ devtools deps backend                  # dependency manifests across 6 ecosystem
 devtools collect backend --format markdown --lang python
 devtools bundle backend                # tree + manifests + curated "important" files
 devtools context backend "how does auth work"
+devtools index build backend --rag && devtools ask backend "how does auth work"
 devtools clean backend --dry-run
 ```
 
@@ -84,11 +85,12 @@ and why you'd reach for it**; `--help` is the flag reference.
 devtools project add backend ~/Projects/backend
 devtools project default backend   # so bare `devtools stats` works with no name
 devtools project list
+devtools project list --fzf        # interactively pick one via fzf, prints its name
 devtools project show backend
 devtools project rename backend api
 devtools project remove api
 ```
-**Why:** Every other command's "project" argument resolves through this registry (falling back to `DEVTOOLS_PROJECT`, the default project, then the current directory) — register once, refer to it by name everywhere after.
+**Why:** Every other command's "project" argument resolves through this registry (falling back to `DEVTOOLS_PROJECT`, the default project, then the current directory) — register once, refer to it by name everywhere after. `--fzf` is for when you've registered enough projects that scanning a plain list by eye is slower than fuzzy-typing a few letters (falls back to the normal list if `fzf` isn't installed).
 
 ### `config`
 **What:** Get/set/list values in `config.toml` (default project, ignored dirs, AI provider, output format) without hand-editing the file.
@@ -110,10 +112,23 @@ devtools ignore remove "*.generated.ts"
 ```
 **Why:** One ignore list instead of teaching every command its own `--exclude` flags; add a pattern once and every scanning command respects it.
 
+There's also a second, file-level default list (`ignored_file_patterns` in `config.toml`) that every scanning command combines with the directory list above — it exists specifically to catch build/cache *files* that live outside one of the ignored *directories* (a stray `.pyc`, a checked-in `.min.js` bundle, `.DS_Store`) which directory-name pruning alone can't reach:
+```bash
+devtools config get ignored_file_patterns
+devtools config set ignored_file_patterns "*.pyc,*.min.js,.DS_Store,..."   # replaces the whole list
+```
+
 ### `index`
-**What:** Builds a local, on-disk index of a project (paths, sizes, language) for faster repeated scans, and reports its status.
-**Use it:** `devtools index build backend`, `devtools index status backend`, `devtools index clear backend`
-**Why:** Speeds up repeated operations on large repos; entirely optional — every command works fine without ever building an index.
+**What:** Builds a local, on-disk SQLite index of a project for faster repeated scans, in two independent flavors: the default whole-file index (paths/sizes/language, plus TF-IDF vectors with `--vectors` for `search --semantic`), and, with `--rag`, a separate **chunk-level** index over `collect` output (see `devtools ask`, below) — persisted, chunked, and vectorized once so repeat questions don't re-scan or re-embed the project. Both support `--full` to force a full rebuild instead of the default incremental (mtime-based) one.
+**Use it:**
+```bash
+devtools index build backend                      # whole-file index
+devtools index build backend --vectors             # + TF-IDF vectors for `search --semantic`
+devtools index build backend --rag --lang python    # chunked index for `devtools ask`
+devtools index status backend                        # or: --rag, for the chunk index
+devtools index clear backend                          # or: --rag, before a clean rebuild
+```
+**Why:** Speeds up repeated operations on large repos; entirely optional — every command works fine without ever building an index. `--rag` is specifically what makes `devtools ask` cheap to run more than once against the same project.
 
 ### `completion`
 **What:** Installs or prints shell completion for bash/zsh/fish.
@@ -145,9 +160,17 @@ devtools ignore remove "*.generated.ts"
 **Why:** Same job as `grep -r`/`rg`, minus re-typing your ignore list every time, and it resolves the project by name.
 
 ### `search`
-**What:** Concept search — keyword/synonym expansion (e.g. "auth" also matches "login", "credential") rather than a literal string match.
-**Use it:** `devtools search backend "authentication flow"`
-**Why:** For "where is the thing that does X" questions where you don't know the exact identifier to `grep` for.
+**What:** Concept search — keyword/synonym expansion (e.g. "auth" also matches "login", "credential") rather than a literal string match. `--semantic` instead ranks by cosine similarity over a local TF-IDF index (build/refresh it first with `--build-index`); `--fzf` lets you pick one result interactively; `--save`/`--load` remember a project+concept(+`--semantic`) combo under a name so you don't have to retype it.
+**Use it:**
+```bash
+devtools search backend "authentication flow"
+devtools search backend "authentication flow" --build-index   # build/refresh the index once
+devtools search backend "authentication flow" --semantic       # then rank by similarity
+devtools search backend "authentication flow" --fzf
+devtools search backend "authentication flow" --save auth-flow
+devtools search --load auth-flow
+```
+**Why:** For "where is the thing that does X" questions where you don't know the exact identifier to `grep` for; `--semantic` is worth the one-time index build for a search you'll re-run often, and `--save`/`--load` turn a good query into a reusable shortcut.
 
 ### `deps`
 **What:** Parses dependency manifests across 6 ecosystems (Python, Node, Rust, Go, Java, Flutter) into one normalized report.
@@ -178,12 +201,22 @@ devtools ignore remove "*.generated.ts"
 
 ## AI-assisted context & explanation
 
-*(These need an AI provider configured — `devtools config set ai_provider claude|openai|ollama` plus the matching API key env var, or a local Ollama — except `collect`/`bundle`/`context`, which just format files for you to paste elsewhere.)*
+*(These need an AI provider configured — `devtools config set ai_provider claude|openai|ollama` plus the matching API key env var, or a local Ollama — except `collect`/`bundle`/`context` without `--compress`, which just format files for you to paste elsewhere. `ask` additionally needs its RAG index built first: `devtools index build --rag`.)*
 
 ### `collect`
-**What:** Collects source files into one (or several, token-budget-chunked) AI-ready file — markdown, JSON, or plain text — with git-aware `--since` filtering.
+**What:** Collects source files into one (or several, token-budget-chunked) AI-ready file — markdown, JSON, or plain text — with git-aware `--since` filtering. Automatically skips build/cache junk: whole directories like `node_modules`/`build`/`dist`/`__pycache__` (via `ignored_dirs`), *and* stray build-artifact files that live outside one of those directories — a `.pyc` sitting next to its `.py`, a checked-in `.min.js` bundle, a `.DS_Store` (via the new `ignored_file_patterns`, see **Configuration** below).
 **Use it:** `devtools collect backend --format markdown --lang python --since main`
-**Why:** The raw material every other AI-assisted command builds on, and useful on its own for pasting a repo slice into any chat-based LLM.
+**Why:** The raw material every other AI-assisted command builds on, and useful on its own for pasting a repo slice into any chat-based LLM — and you don't want the token budget spent on a compiled `.class` file or a minified bundle nobody's going to read.
+
+### `expand`
+**What:** The inverse of `collect`: parses a file `collect` previously produced (markdown, json, or text — format auto-detected) and writes every file back out to a real directory on disk, recreating a working project from it. Refuses to silently overwrite a file that already exists with different content unless you pass `--force`; auto-registers the result as a project (like `new` does), so the next command can be `devtools doctor <name>`.
+**Use it:**
+```bash
+devtools collect backend --out /tmp
+devtools expand /tmp/backend_collect.md ~/Projects/backend-restored
+devtools expand /tmp/backend_collect.md ~/Projects/backend-restored --force   # overwrite conflicts
+```
+**Why:** For turning a `collect` dump — one someone pasted into a chat, emailed you, or you generated yourself as a portable snapshot — back into an actual, working repository, instead of manually copy-pasting each file block out by hand.
 
 ### `bundle`
 **What:** Produces `<project>_bundle.md`: directory tree + dependency manifests + a curated set of "important" source files (entry points, configs, core modules).
@@ -208,6 +241,17 @@ devtools context backend "how does auth work" --max-tokens 4000 --compress
 **What:** Drafts an ARCHITECTURE.md-style overview via a **map-reduce** pass over the whole repo: each token-budget chunk is summarized individually, then all the chunk summaries are synthesized into one coherent overview.
 **Use it:** `devtools summarize backend --repo`
 **Why:** For repos too large for a single LLM context window — map-reduce means you still get one coherent answer instead of hitting a context-limit error.
+
+### `ask`
+**What:** Retrieval-augmented Q&A over a **persistent, pre-built chunk index** (`devtools index build --rag`) — unlike `context`/`explain`, which relevance-search the live filesystem on every call, `ask` only ever reads from the already-chunked, already-vectorized SQLite index, so a second (or hundredth) question against the same project is cheap and doesn't touch the filesystem beyond the index file itself. Answers cite the specific file(s) and line range(s) the retrieved chunks came from.
+**Use it:**
+```bash
+devtools index build backend --rag     # once, and again after a significant change
+devtools ask backend "how does the retry logic work"
+devtools ask backend "how does the retry logic work" --top 10
+```
+**Why:** For a project you're going to ask several questions about in one sitting — `context`/`explain` re-derive relevance from scratch every time, `ask` derives it once at build time and reuses it. If the index hasn't been built yet (or nothing in it matches), it says so and tells you the exact command to run, instead of silently falling back to a full re-scan.
+
 
 ---
 
@@ -474,8 +518,8 @@ project-level overrides in `config.toml` > global defaults.**
 ### AI provider setup
 
 AI-assisted commands (`explain`, `review`, `context --compress`, `summarize`,
-`commit explain`, `docs generate` for real content, `investigate`) need a
-provider configured:
+`commit explain`, `docs generate` for real content, `investigate`, `ask`) need
+a provider configured:
 
 ```bash
 devtools config set ai_provider claude   # or: openai, ollama

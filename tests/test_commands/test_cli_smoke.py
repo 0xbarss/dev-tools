@@ -48,6 +48,28 @@ def test_unregistered_project_exits_3(sample_repo):
     assert result.exit_code == 3
 
 
+def test_project_list_fzf_prints_selected_name(sample_repo, monkeypatch):
+    name = _register(sample_repo, name="fzf-demo")
+
+    from devtools.commands import project as project_cmd
+
+    monkeypatch.setattr(project_cmd, "run_fzf", lambda lines, **kwargs: [lines[0]])
+    result = runner.invoke(app, ["project", "list", "--fzf"])
+    assert result.exit_code == 0
+    assert result.output.strip() == name
+
+
+def test_project_list_fzf_falls_back_when_not_installed(sample_repo, monkeypatch):
+    _register(sample_repo, name="fzf-demo2")
+
+    from devtools.commands import project as project_cmd
+
+    monkeypatch.setattr(project_cmd, "run_fzf", lambda lines, **kwargs: None)
+    result = runner.invoke(app, ["project", "list", "--fzf"])
+    assert result.exit_code == 0
+    assert "fzf not found on PATH" in result.output
+
+
 def test_stats_json_output_shape(sample_repo):
     name = _register(sample_repo)
     result = runner.invoke(app, ["--json", "stats", name])
@@ -61,6 +83,26 @@ def test_collect_bad_format_exits_2(sample_repo):
     name = _register(sample_repo)
     result = runner.invoke(app, ["collect", name, "--format", "bogus"])
     assert result.exit_code == 2
+
+
+def test_collect_ignores_stray_build_and_cache_files(sample_repo):
+    # sample_repo already has a node_modules/ dir and a __pycache__/ .pyc
+    # file pruned by DEFAULT_IGNORED_DIRS; these are stray build/cache
+    # artifacts sitting *outside* any such directory, which only the new
+    # ignored_file_patterns layer catches.
+    (sample_repo / "src" / "leftover.pyc").write_text("bytecode-ish\n")
+    (sample_repo / "src" / "bundle.min.js").write_text("!function(){}();\n")
+    (sample_repo / ".DS_Store").write_text("junk\n")
+
+    name = _register(sample_repo, name="collect_ignore_demo")
+    result = runner.invoke(app, ["--json", "collect", name])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    paths = {f["path"] for f in payload["files"]}
+    assert "src/leftover.pyc" not in paths
+    assert "src/bundle.min.js" not in paths
+    assert ".DS_Store" not in paths
+    assert "src/main.py" in paths
 
 
 def test_doctor_ci_exits_5_when_issues_found(sample_repo):

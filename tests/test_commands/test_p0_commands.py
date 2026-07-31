@@ -108,3 +108,79 @@ def test_mcp_serve_help_lists_transport_option():
     result = runner.invoke(app, ["mcp-serve", "--help"])
     assert result.exit_code == 0
     assert "--transport" in result.output
+
+
+def test_index_build_status_clear_rag(sample_repo):
+    name = _register(sample_repo, "rag_index_demo")
+    build_result = runner.invoke(app, ["index", "build", name, "--rag"])
+    assert build_result.exit_code == 0
+    assert "RAG index" in build_result.output
+
+    status_result = runner.invoke(app, ["--json", "index", "status", name, "--rag"])
+    assert status_result.exit_code == 0
+    payload = json.loads(status_result.output)
+    assert payload["files_indexed"] > 0
+    assert payload["chunks_indexed"] > 0
+    assert payload["fresh"] is True
+
+    clear_result = runner.invoke(app, ["index", "clear", name, "--rag"])
+    assert clear_result.exit_code == 0
+    assert "Deleted RAG index" in clear_result.output
+
+
+def test_ask_fails_cleanly_without_ai_provider(sample_repo):
+    name = _register(sample_repo, "ask_no_provider")
+    runner.invoke(app, ["index", "build", name, "--rag"])
+    result = runner.invoke(app, ["ask", name, "login authenticate password"])
+    assert result.exit_code != 0
+    assert "No AI provider configured" in result.output
+
+
+def test_ask_reports_missing_rag_index(sample_repo):
+    name = _register(sample_repo, "ask_no_index")
+    result = runner.invoke(app, ["ask", name, "login authenticate password"])
+    assert result.exit_code == 0
+    assert "devtools index build --rag" in " ".join(result.output.split())
+
+
+def test_collect_then_expand_round_trips_and_registers(sample_repo, tmp_path):
+    name = _register(sample_repo, "expand_demo")
+    collect_out = tmp_path / "collected"
+    collect_result = runner.invoke(app, ["collect", name, "--out", str(collect_out)])
+    assert collect_result.exit_code == 0
+
+    dump_path = collect_out / f"{name}_collect.md"
+    target = tmp_path / "restored"
+    expand_result = runner.invoke(app, ["expand", str(dump_path), str(target), "--name", "expand_demo_restored"])
+    assert expand_result.exit_code == 0
+    assert "Registered as project 'expand_demo_restored'" in expand_result.output
+    assert (target / "src" / "main.py").is_file()
+
+    list_result = runner.invoke(app, ["--json", "project", "list"])
+    names = {p["name"] for p in json.loads(list_result.output)["projects"]}
+    assert "expand_demo_restored" in names
+
+
+def test_expand_conflict_without_force_exits_nonzero(sample_repo, tmp_path):
+    name = _register(sample_repo, "expand_conflict")
+    collect_out = tmp_path / "collected2"
+    runner.invoke(app, ["collect", name, "--out", str(collect_out)])
+    dump_path = collect_out / f"{name}_collect.md"
+
+    target = tmp_path / "restored2"
+    (target / "src").mkdir(parents=True)
+    (target / "src" / "main.py").write_text("something else entirely\n")
+
+    result = runner.invoke(app, ["expand", str(dump_path), str(target), "--no-register"])
+    assert result.exit_code != 0
+    assert "already exist" in result.output
+
+    force_result = runner.invoke(app, ["expand", str(dump_path), str(target), "--force", "--no-register"])
+    assert force_result.exit_code == 0
+
+
+def test_expand_bad_format_exits_2(tmp_path):
+    bogus = tmp_path / "dump.md"
+    bogus.write_text("nothing collect-shaped here\n")
+    result = runner.invoke(app, ["expand", str(bogus), str(tmp_path / "out"), "--format", "bogus"])
+    assert result.exit_code == 2

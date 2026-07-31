@@ -43,7 +43,7 @@ _MCP_INSTALL_HINT = (
 def _rules_for(project: Project) -> IgnoreRules:
     settings = cfgmod.load_settings(None)
     ignored_dirs = settings.ignored_dirs_for(project.name)
-    return IgnoreRules.build(root=project.resolved_path, base_ignored_dirs=ignored_dirs)
+    return IgnoreRules.build(root=project.resolved_path, base_ignored_dirs=ignored_dirs, base_ignored_patterns=settings.ignored_file_patterns)
 
 
 def _resolve(projects: dict[str, Project], name: str) -> Project:

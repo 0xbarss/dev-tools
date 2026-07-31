@@ -4,6 +4,11 @@ Used by collect, bundle, grep, tree, and stats so ignore behavior never
 diverges between commands. Combines, in order of increasing precedence:
 
     1. built-in default ignored_dirs (from config.toml `ignored_dirs`)
+    1b. built-in default ignored file patterns (from config.toml
+        `ignored_file_patterns`) -- build artifacts / caches that live
+        outside a whole named directory (a stray .pyc, a minified bundle,
+        an .DS_Store), which (1) alone can't catch since it only prunes
+        directories by name
     2. the repo's own .gitignore (unless --no-gitignore)
     3. project-level overrides (config.toml [project_overrides.<name>])
     4. ad-hoc --exclude globs passed on the command line
@@ -27,13 +32,14 @@ class IgnoreRules:
     _spec: pathspec.PathSpec = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._spec = pathspec.PathSpec.from_lines("gitwildmatch", self.patterns)
+        self._spec = pathspec.PathSpec.from_lines("gitignore", self.patterns)
 
     @classmethod
     def build(
         cls,
         root: Path,
         base_ignored_dirs: list[str],
+        base_ignored_patterns: list[str] | None = None,
         project_ignored_dirs: list[str] | None = None,
         extra_excludes: list[str] | None = None,
         use_gitignore: bool = True,
@@ -43,6 +49,12 @@ class IgnoreRules:
         # 1. built-in / global ignored dirs (config.toml `ignored_dirs`)
         for d in base_ignored_dirs:
             patterns.append(_as_dir_pattern(d))
+
+        # 1b. built-in / global ignored file patterns (config.toml
+        # `ignored_file_patterns`) -- bare globs, appended as-is since they
+        # already match at any depth under gitignore semantics.
+        for pat in base_ignored_patterns or []:
+            patterns.append(pat)
 
         # 2. the repo's own .gitignore
         if use_gitignore:
