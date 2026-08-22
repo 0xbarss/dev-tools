@@ -7,6 +7,8 @@ per the golden-file testing strategy in spec §11.
 
 from __future__ import annotations
 
+import io
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -192,6 +194,39 @@ def render_json(result: CollectionResult) -> dict:
         "skipped_binary": result.skipped_binary,
         "skipped_too_large": result.skipped_too_large,
     }
+
+
+def render_zip(result: CollectionResult) -> bytes:
+    """Package collected files into an in-memory zip archive, one entry per
+    file at its original `rel_path` (unlike markdown/json/text, which
+    concatenate everything into one blob). A top-level MANIFEST.txt carries
+    the same summary line the other formats put in a header -- file/token/
+    size counts, truncation status, and the skipped-file lists -- since a
+    zip has no natural place for that at the archive level.
+
+    Skipped-binary and skipped-too-large files have no content to include,
+    so only their paths show up in the manifest, not as archive entries.
+    """
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        for f in result.files:
+            zf.writestr(f.rel_path, f.content)
+
+        manifest_lines = [
+            f"files: {len(result.files)}",
+            f"total_tokens: {result.total_tokens}",
+            f"total_size: {result.total_size}",
+            f"truncated: {result.truncated}",
+        ]
+        if result.skipped_binary:
+            manifest_lines.append("skipped_binary:")
+            manifest_lines.extend(f"  {p}" for p in result.skipped_binary)
+        if result.skipped_too_large:
+            manifest_lines.append("skipped_too_large:")
+            manifest_lines.extend(f"  {p}" for p in result.skipped_too_large)
+        zf.writestr("MANIFEST.txt", "\n".join(manifest_lines) + "\n")
+
+    return buf.getvalue()
 
 
 def chunk_by_tokens(files: list[CollectedFile], chunk_size: int) -> list[list[CollectedFile]]:

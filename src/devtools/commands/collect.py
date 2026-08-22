@@ -15,6 +15,7 @@ from devtools.core.collector import (
     render_json,
     render_markdown,
     render_text,
+    render_zip,
 )
 from devtools.core.exit_codes import FILESYSTEM_ERROR, GENERAL_ERROR, INVALID_USAGE
 from devtools.core.export_engine import cache_output
@@ -31,7 +32,7 @@ def collect(
     lang: List[str] = typer.Option([], "--lang", help="Restrict to these languages (repeatable)."),
     exclude: List[str] = typer.Option([], "--exclude", help="Extra glob(s) to exclude, added to config ignores (repeatable)."),
     max_size: Optional[str] = typer.Option(None, "--max-size", help="Skip files larger than this, e.g. 5MB."),
-    fmt: str = typer.Option("markdown", "--format", help="Output content format: markdown, json, or text."),
+    fmt: str = typer.Option("markdown", "--format", help="Output content format: markdown, json, text, or zip."),
     chunk_size: Optional[int] = typer.Option(None, "--chunk-size", help="Split output into numbered files if this token count is exceeded."),
     since: Optional[str] = typer.Option(None, "--since", help="Only collect files changed since this git ref."),
     no_gitignore: bool = typer.Option(False, "--no-gitignore", help="Don't respect the project's .gitignore."),
@@ -40,8 +41,10 @@ def collect(
 ) -> None:
     """Collect source files from a project into one (or several) AI-ready file(s)."""
     state = ctx.obj
-    if fmt not in ("markdown", "json", "text"):
-        fail(ctx, INVALID_USAGE, "--format must be one of: markdown, json, text")
+    if fmt not in ("markdown", "json", "text", "zip"):
+        fail(ctx, INVALID_USAGE, "--format must be one of: markdown, json, text, zip")
+    if fmt == "zip" and stdout:
+        fail(ctx, INVALID_USAGE, "--stdout isn't supported with --format zip; a zip archive can't be printed as text.")
 
     proj = resolve_project(ctx, project)
     max_size_bytes = None
@@ -85,6 +88,9 @@ def collect(
         elif fmt == "text":
             content_groups = [render_text(result)]
             write_mode = "text"
+        elif fmt == "zip":
+            content_groups = [render_zip(result)]
+            write_mode = "zip"
         else:
             if chunk_size:
                 chunks = chunk_by_tokens(result.files, chunk_size)
@@ -103,13 +109,16 @@ def collect(
         else:
             out_dir = out or Path.cwd()
             out_dir.mkdir(parents=True, exist_ok=True)
-            ext = {"markdown": "md", "json": "json", "text": "txt"}[write_mode]
+            ext = {"markdown": "md", "json": "json", "text": "txt", "zip": "zip"}[write_mode]
             written = []
             for i, content in enumerate(content_groups):
                 suffix = f"_{i+1}" if len(content_groups) > 1 else ""
                 out_path = out_dir / f"{proj.name}_collect{suffix}.{ext}"
                 try:
-                    out_path.write_text(content, encoding="utf-8")
+                    if write_mode == "zip":
+                        out_path.write_bytes(content)
+                    else:
+                        out_path.write_text(content, encoding="utf-8")
                 except OSError as exc:
                     fail(ctx, FILESYSTEM_ERROR, f"Could not write {out_path}: {exc}")
                 written.append(out_path)
