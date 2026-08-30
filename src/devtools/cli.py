@@ -19,6 +19,7 @@ from typer.core import TyperGroup
 from devtools import __version__
 from devtools.commands import (
     alias as alias_cmd,
+    appimage as appimage_cmd,
     ask as ask_cmd,
     bookmark as bookmark_cmd,
     branches as branches_cmd,
@@ -246,6 +247,7 @@ app.command("ask")(ask_cmd.ask)
 app.add_typer(pr_cmd.app, name="pr")
 
 # --- sub-apps with their own subcommands -----------------------------------------
+app.add_typer(appimage_cmd.app, name="appimage")
 app.add_typer(project_cmd.app, name="project")
 app.add_typer(ignore_cmd.app, name="ignore")
 app.add_typer(alias_cmd.app, name="alias")

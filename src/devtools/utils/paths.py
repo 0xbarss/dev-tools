@@ -132,3 +132,33 @@ def daemon_pid_file_path(project_name: str) -> Path:
 
 def daemon_log_file_path(project_name: str) -> Path:
     return daemon_dir() / f"{project_name}.log"
+
+
+def _xdg_data_home() -> Path:
+    override = os.environ.get("XDG_DATA_HOME")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".local" / "share"
+
+
+def applications_dir() -> Path:
+    """Where `.desktop` launchers are installed (`devtools appimage`).
+
+    Deliberately *not* under `config_dir()` -- this is a standard XDG data
+    location (`$XDG_DATA_HOME/applications`, i.e. `~/.local/share/applications`
+    on most Linux distros) that desktop environments scan directly, not
+    devtools-private state. `DEVTOOLS_APPLICATIONS_DIR` overrides for tests.
+    """
+    override = os.environ.get("DEVTOOLS_APPLICATIONS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return _xdg_data_home() / "applications"
+
+
+def icons_dir() -> Path:
+    """Where icons extracted from AppImages are copied (`devtools appimage`),
+    e.g. `~/.local/share/icons`. `DEVTOOLS_ICONS_DIR` overrides for tests."""
+    override = os.environ.get("DEVTOOLS_ICONS_DIR")
+    if override:
+        return Path(override).expanduser()
+    return _xdg_data_home() / "icons"
