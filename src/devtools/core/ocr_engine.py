@@ -400,11 +400,18 @@ def extract_text(
             raise OcrError(f"Unknown preprocessing pipeline '{name}'. Known: {', '.join(PIPELINES)}")
         try:
             processed = build(source)
-        except Exception as exc:  # a pipeline failing shouldn't sink the whole run
+        except Exception:  # a pipeline failing shouldn't sink the whole run
             continue
         for psm in modes:
             try:
                 text, words = _run_tesseract(processed, psm)
+            except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError) as exc:
+                # A broken Tesseract installation (missing binary, missing
+                # language data, bad TESSDATA_PREFIX, ...) fails identically
+                # for every pipeline/PSM combination -- retrying the other
+                # nine pipelines just burns time before hitting the same
+                # wall, so surface it immediately instead of swallowing it.
+                raise OcrError(_friendly_tesseract_error(exc)) from exc
             except Exception:
                 continue
             attempted.append(OcrCandidate(pipeline=name, psm=psm, text=text, words=words))
@@ -412,12 +419,26 @@ def extract_text(
     if not attempted:
         # Last resort: a single unprocessed pass, so the tool never returns
         # nothing just because every scored candidate errored out.
-        text, words = _run_tesseract(source.convert("L"), 3)
+        try:
+            text, words = _run_tesseract(source.convert("L"), 3)
+        except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError) as exc:
+            raise OcrError(_friendly_tesseract_error(exc)) from exc
         attempted.append(OcrCandidate(pipeline="fallback", psm=3, text=text, words=words))
 
     best = max(attempted, key=lambda c: c.score)
     elapsed = time.perf_counter() - start
     return OcrResult(image_path=str(image_path), best=best, attempted=attempted, elapsed_seconds=elapsed)
+
+
+def _friendly_tesseract_error(exc: Exception) -> str:
+    message = str(exc)
+    if "tessdata" in message.lower() or "TESSDATA_PREFIX" in message:
+        return (
+            "Tesseract couldn't find its language data (eng.traineddata). "
+            "Install the language pack (e.g. `apt install tesseract-ocr-eng`) or point "
+            "TESSDATA_PREFIX at the directory containing it. Original error: " + message
+        )
+    return f"Tesseract failed to run: {message}"
 
 
 # --- output formatting ---------------------------------------------------------
