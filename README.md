@@ -19,6 +19,8 @@ pip install -e ".[dev]"
 pip install -e ".[tui]"
 # MCP server (devtools mcp-serve):
 pip install -e ".[mcp]"
+# OCR (devtools ocr) -- also needs a local `tesseract` binary on PATH:
+pip install -e ".[ocr]"
 ```
 
 This registers the `devtools` command on your `PATH` (see `[project.scripts]` in
@@ -466,6 +468,12 @@ devtools daemon stop backend
 **What:** Named quick-jumps to specific paths within your registered projects.
 **Use it:** `devtools bookmark add auth backend src/auth/login.py`, `devtools bookmark go auth`
 **Why:** For the handful of files you open constantly across projects — one short name instead of remembering (or re-navigating to) the full path every time.
+
+### `ocr`
+**What:** Extracts text from difficult screenshots — tiny UI text, blurry or heavily-compressed shots, low-contrast text, dark-mode screenshots — using local Tesseract OCR. Runs several image-preprocessing pipelines (upscale, grayscale, contrast, sharpen, denoise, threshold, invert) crossed with a few Tesseract page-segmentation modes, scores every attempt by Tesseract's own per-word confidence, and keeps the best one. Fully offline; no cloud OCR API involved.
+**Use it:** `devtools ocr screenshot.png`, `devtools ocr dark_mode_shot.png --format json --out result.json`, `devtools ocr tiny_text.jpg --thorough --show-attempts`
+**Formats:** `--format txt|json|csv|md|html` (`txt` default). `--out PATH` writes to a file instead of stdout. `--thorough` tries every pipeline/PSM combination instead of the quick default set. `--pipeline NAME` skips the comparison and forces one specific pipeline.
+**Why:** A plain `tesseract` call on a bad screenshot often returns garbage or nothing; trying a handful of preprocessing variants and keeping the most confident result turns "OCR failed" into "OCR worked" for the screenshots that actually need it. *(requires `pip install "devtools[ocr]"` plus a local `tesseract` binary, e.g. `apt install tesseract-ocr` / `brew install tesseract`)*
 
 ---
 

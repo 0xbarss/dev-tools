@@ -59,6 +59,7 @@ from devtools.commands import (
     mcp_serve as mcp_serve_cmd,
     new as new_cmd,
     notify as notify_cmd,
+    ocr as ocr_cmd,
     owners as owners_cmd,
     plugin as plugin_cmd,
     pr as pr_cmd,
@@ -242,6 +243,7 @@ app.command("sonar-import")(sonar_import_cmd.sonar_import)
 app.command("run")(run_cmd.run)
 app.command("new")(new_cmd.new)
 app.command("ask")(ask_cmd.ask)
+app.command("ocr")(ocr_cmd.ocr)
 
 # --- P3 backlog: issue linking (#20) ----------------------------------------
 app.add_typer(pr_cmd.app, name="pr")
