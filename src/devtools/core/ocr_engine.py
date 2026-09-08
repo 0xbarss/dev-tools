@@ -31,9 +31,15 @@ import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
-from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+try:
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+except ImportError:  # pragma: no cover - exercised via OcrError path in tests
+    Image = None  # type: ignore[assignment]
+    ImageEnhance = None  # type: ignore[assignment]
+    ImageFilter = None  # type: ignore[assignment]
+    ImageOps = None  # type: ignore[assignment]
 
 try:
     import pytesseract
@@ -158,21 +164,27 @@ class OcrResult:
 
 
 def tesseract_available() -> bool:
-    if pytesseract is None:
+    if pytesseract is None or Image is None:
         return False
     return shutil.which("tesseract") is not None
 
 
 def require_tesseract() -> None:
+    missing = []
+    if Image is None:
+        missing.append("Pillow")
     if pytesseract is None:
+        missing.append("pytesseract")
+    if missing:
         raise OcrError(
-            "The `pytesseract` package is not installed. Install it with `pip install pytesseract` "
-            "(devtools' own optional extra: `pip install -e '.[ocr]'`)."
+            f"Missing required package(s) for `devtools ocr`: {', '.join(missing)}. Install with "
+            f"`pip install {' '.join(m.lower() for m in missing)}` "
+            '(devtools\' own optional extra: `pip install "devtools[ocr]"`).'
         )
     if shutil.which("tesseract") is None:
         raise OcrError(
             "The `tesseract` binary was not found on PATH. Install it with your package manager, "
-            "e.g. `apt install tesseract-ocr` / `brew install tesseract`."
+            "e.g. `apt install tesseract-ocr` / `pacman -S tesseract` / `brew install tesseract`."
         )
 
 
@@ -266,7 +278,7 @@ def looks_dark_mode(img: Image.Image) -> bool:
 
 # --- preprocessing pipelines (name -> function composing the steps above) ----
 
-_Pipeline = Callable[[Image.Image], Image.Image]
+_Pipeline = Callable[[Any], Any]
 
 
 def _build_pipelines() -> dict[str, _Pipeline]:
