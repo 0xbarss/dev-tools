@@ -19,6 +19,7 @@ from devtools.core.ocr_engine import (
     PIPELINES,
     OcrError,
     SUPPORTED_OUTPUT_FORMATS,
+    available_languages,
     extract_text,
     render,
     tesseract_available,
@@ -30,9 +31,18 @@ app = typer.Typer()
 @app.command()
 def ocr(
     ctx: typer.Context,
-    image: Path = typer.Argument(..., help="Path to the screenshot/image to OCR."),
+    image: Optional[Path] = typer.Argument(
+        None, help="Path to the screenshot/image to OCR. Not required with --list-langs."
+    ),
     fmt: str = typer.Option(
         "txt", "--format", "-f", help=f"Output format: {', '.join(SUPPORTED_OUTPUT_FORMATS)}."
+    ),
+    lang: str = typer.Option(
+        "eng",
+        "--lang",
+        "-l",
+        help="Tesseract language code(s) to OCR with, e.g. 'tur', or 'eng+tur' to read mixed-language "
+        "text. Must already be installed (see --list-langs).",
     ),
     out: Optional[Path] = typer.Option(
         None, "--out", "-o", help="Write the result to this file instead of printing it."
@@ -52,6 +62,11 @@ def ocr(
         "--show-attempts",
         help="Also print the confidence score of every (pipeline, PSM) attempt that was tried, not just the winner.",
     ),
+    list_langs: bool = typer.Option(
+        False,
+        "--list-langs",
+        help="List Tesseract language codes currently installed and exit (no image needed).",
+    ),
 ) -> None:
     """OCR an image, trying multiple preprocessing pipelines (upscale,
     grayscale, contrast, sharpen, denoise, threshold, invert) crossed with
@@ -65,28 +80,49 @@ def ocr(
         devtools ocr dark_mode_shot.png --format json --out result.json
 
         devtools ocr tiny_text.jpg --thorough --show-attempts
+
+        devtools ocr turkish_ui.png --lang tur
+
+        devtools ocr mixed.png --lang eng+tur
+
+        devtools ocr --list-langs
     """
     state = ctx.obj
-
-    if fmt not in SUPPORTED_OUTPUT_FORMATS:
-        fail(ctx, INVALID_USAGE, f"--format must be one of: {', '.join(SUPPORTED_OUTPUT_FORMATS)}")
-    if pipeline is not None and pipeline not in PIPELINES:
-        fail(ctx, INVALID_USAGE, f"--pipeline must be one of: {', '.join(PIPELINES)}")
 
     if not tesseract_available():
         fail(
             ctx,
             GENERAL_ERROR,
             "The `tesseract` binary (or the `pytesseract` package) isn't available. "
-            "Install Tesseract (e.g. `apt install tesseract-ocr` / `brew install tesseract`) "
+            "Install Tesseract (e.g. `apt install tesseract-ocr` / `pacman -S tesseract` / `brew install tesseract`) "
             "and `pip install pytesseract`.",
         )
+
+    if list_langs:
+        try:
+            langs = available_languages()
+        except OcrError as exc:
+            fail(ctx, GENERAL_ERROR, str(exc))
+            return
+        if state.output.is_json:
+            state.output.emit_json({"languages": langs})
+        else:
+            state.output.print(", ".join(langs) if langs else "(none installed)")
+        return
+
+    if image is None:
+        fail(ctx, INVALID_USAGE, "Missing argument 'IMAGE' (or pass --list-langs to see installed languages).")
+    if fmt not in SUPPORTED_OUTPUT_FORMATS:
+        fail(ctx, INVALID_USAGE, f"--format must be one of: {', '.join(SUPPORTED_OUTPUT_FORMATS)}")
+    if pipeline is not None and pipeline not in PIPELINES:
+        fail(ctx, INVALID_USAGE, f"--pipeline must be one of: {', '.join(PIPELINES)}")
 
     try:
         result = extract_text(
             image,
             thorough=thorough,
             pipelines=(pipeline,) if pipeline else None,
+            lang=lang,
         )
     except OcrError as exc:
         fail(ctx, GENERAL_ERROR, str(exc))

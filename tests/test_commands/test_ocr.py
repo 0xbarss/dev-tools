@@ -79,3 +79,34 @@ def test_ocr_thorough_flag_runs_without_error(clean_image):
     result = runner.invoke(app, ["ocr", str(clean_image), "--thorough", "--format", "csv"])
     assert result.exit_code == 0, result.output
     assert "text,confidence" in result.output
+
+
+def test_ocr_list_langs(clean_image):
+    result = runner.invoke(app, ["ocr", "--list-langs"])
+    assert result.exit_code == 0, result.output
+    assert "eng" in result.output
+
+
+def test_ocr_list_langs_json():
+    result = runner.invoke(app, ["--json", "ocr", "--list-langs"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    assert "eng" in payload["languages"]
+
+
+def test_ocr_missing_image_without_list_langs_fails_cleanly():
+    result = runner.invoke(app, ["ocr"])
+    assert result.exit_code == 2
+    assert "list-langs" in result.output.lower()
+
+
+def test_ocr_rejects_uninstalled_language(clean_image):
+    result = runner.invoke(app, ["ocr", str(clean_image), "--lang", "xx-not-a-real-language"])
+    assert result.exit_code == 1
+    assert "not installed" in result.output.lower()
+
+
+def test_ocr_lang_flag_is_accepted_for_english(clean_image):
+    result = runner.invoke(app, ["ocr", str(clean_image), "--lang", "eng"])
+    assert result.exit_code == 0, result.output
+    assert "hello" in result.output.lower()

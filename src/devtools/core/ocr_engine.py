@@ -140,6 +140,7 @@ class OcrResult:
     best: OcrCandidate
     attempted: list[OcrCandidate]
     elapsed_seconds: float
+    lang: str = "eng"
 
     @property
     def lines(self) -> list[str]:
@@ -149,6 +150,7 @@ class OcrResult:
     def as_dict(self) -> dict:
         return {
             "image_path": self.image_path,
+            "lang": self.lang,
             "text": self.best.text,
             "mean_confidence": None if self.best.mean_confidence is None else round(self.best.mean_confidence, 2),
             "pipeline": self.best.pipeline,
@@ -185,6 +187,36 @@ def require_tesseract() -> None:
         raise OcrError(
             "The `tesseract` binary was not found on PATH. Install it with your package manager, "
             "e.g. `apt install tesseract-ocr` / `pacman -S tesseract` / `brew install tesseract`."
+        )
+
+
+def available_languages() -> list[str]:
+    """Language codes Tesseract can currently see (installed .traineddata
+    files), e.g. ['eng', 'tur', 'osd']. `osd` (orientation/script detection)
+    isn't a real OCR language and is filtered out."""
+    require_tesseract()
+    try:
+        langs = pytesseract.get_languages(config="")
+    except Exception as exc:
+        raise OcrError(f"Could not list installed Tesseract languages: {exc}") from exc
+    return sorted(l for l in langs if l != "osd")
+
+
+def require_languages(lang: str) -> None:
+    """Validate a `-l` value (e.g. 'eng', 'tur', or 'eng+tur') against what's
+    actually installed, and fail with an actionable message rather than
+    letting Tesseract's own opaque error surface."""
+    requested = [code.strip() for code in lang.split("+") if code.strip()]
+    if not requested:
+        raise OcrError("--lang cannot be empty. Use a Tesseract language code, e.g. 'eng', 'tur', or 'eng+tur'.")
+    installed = set(available_languages())
+    missing = [code for code in requested if code not in installed]
+    if missing:
+        raise OcrError(
+            f"Language data not installed for: {', '.join(missing)}. "
+            f"Currently installed: {', '.join(sorted(installed)) or 'none'}. "
+            f"Install the missing pack, e.g. `pacman -S tesseract-data-{missing[0]}` (Arch/EndeavourOS) "
+            f"or `apt install tesseract-ocr-{missing[0]}` (Debian/Ubuntu), then retry."
         )
 
 
@@ -344,9 +376,9 @@ _QUICK_PIPELINES = ("plain", "high_contrast", "binarized", "denoised_binarized",
 # --- OCR execution -------------------------------------------------------------
 
 
-def _run_tesseract(img: Image.Image, psm: int) -> tuple[str, list[OcrWord]]:
+def _run_tesseract(img: Image.Image, psm: int, lang: str) -> tuple[str, list[OcrWord]]:
     config = f"--psm {psm}"
-    data = pytesseract.image_to_data(img, config=config, output_type=Output.DICT)
+    data = pytesseract.image_to_data(img, lang=lang, config=config, output_type=Output.DICT)
     words: list[OcrWord] = []
     n = len(data.get("text", []))
     for i in range(n):
@@ -369,7 +401,7 @@ def _run_tesseract(img: Image.Image, psm: int) -> tuple[str, list[OcrWord]]:
                 block_num=int(data.get("block_num", [0] * n)[i]),
             )
         )
-    full_text = pytesseract.image_to_string(img, config=config).strip()
+    full_text = pytesseract.image_to_string(img, lang=lang, config=config).strip()
     return full_text, words
 
 
@@ -378,15 +410,20 @@ def extract_text(
     thorough: bool = False,
     psm_modes: tuple[int, ...] | None = None,
     pipelines: tuple[str, ...] | None = None,
+    lang: str = "eng",
 ) -> OcrResult:
     """Run every (pipeline, PSM) combination, OCR each, and return the
     highest-scoring result plus a summary of every attempt.
 
     `thorough=True` tries the full pipeline set and more PSM modes -- slower,
     worth it for an image that already failed a quick pass. `pipelines` /
-    `psm_modes` let a caller override either set explicitly.
+    `psm_modes` let a caller override either set explicitly. `lang` is a
+    Tesseract language code, or several joined with '+' (e.g. 'eng+tur') to
+    OCR mixed-language text -- run `devtools ocr --list-langs` (or
+    `tesseract --list-langs`) to see what's installed.
     """
     require_tesseract()
+    require_languages(lang)
 
     if not image_path.is_file():
         raise OcrError(f"Image not found: {image_path}")
@@ -416,7 +453,7 @@ def extract_text(
             continue
         for psm in modes:
             try:
-                text, words = _run_tesseract(processed, psm)
+                text, words = _run_tesseract(processed, psm, lang)
             except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError) as exc:
                 # A broken Tesseract installation (missing binary, missing
                 # language data, bad TESSDATA_PREFIX, ...) fails identically
@@ -432,23 +469,24 @@ def extract_text(
         # Last resort: a single unprocessed pass, so the tool never returns
         # nothing just because every scored candidate errored out.
         try:
-            text, words = _run_tesseract(source.convert("L"), 3)
+            text, words = _run_tesseract(source.convert("L"), 3, lang)
         except (pytesseract.TesseractError, pytesseract.TesseractNotFoundError) as exc:
             raise OcrError(_friendly_tesseract_error(exc)) from exc
         attempted.append(OcrCandidate(pipeline="fallback", psm=3, text=text, words=words))
 
     best = max(attempted, key=lambda c: c.score)
     elapsed = time.perf_counter() - start
-    return OcrResult(image_path=str(image_path), best=best, attempted=attempted, elapsed_seconds=elapsed)
+    return OcrResult(image_path=str(image_path), best=best, attempted=attempted, elapsed_seconds=elapsed, lang=lang)
 
 
 def _friendly_tesseract_error(exc: Exception) -> str:
     message = str(exc)
     if "tessdata" in message.lower() or "TESSDATA_PREFIX" in message:
         return (
-            "Tesseract couldn't find its language data (eng.traineddata). "
-            "Install the language pack (e.g. `apt install tesseract-ocr-eng`) or point "
-            "TESSDATA_PREFIX at the directory containing it. Original error: " + message
+            "Tesseract couldn't find the requested language data. "
+            "Install the missing language pack (e.g. `pacman -S tesseract-data-eng` on Arch/EndeavourOS, "
+            "`apt install tesseract-ocr-eng` on Debian/Ubuntu) or point TESSDATA_PREFIX at the directory "
+            "containing it. Original error: " + message
         )
     return f"Tesseract failed to run: {message}"
 
@@ -484,6 +522,7 @@ def to_markdown(result: OcrResult) -> str:
         f"# OCR result — {Path(result.image_path).name}",
         "",
         f"- **Source:** `{result.image_path}`",
+        f"- **Language:** `{result.lang}`",
         f"- **Preprocessing:** `{result.best.pipeline}` (PSM {result.best.psm})",
         f"- **Mean confidence:** {conf_str}",
         f"- **Words detected:** {result.best.word_count}",
@@ -527,7 +566,8 @@ def to_html(result: OcrResult) -> str:
         ".meta{color:#555;font-size:0.9em;margin-bottom:1.5rem}"
         ".w{padding:1px 2px;border-radius:2px}</style></head><body>"
         f"<h1>OCR result — {title}</h1>"
-        f"<p class='meta'>Preprocessing: <code>{html.escape(result.best.pipeline)}</code> "
+        f"<p class='meta'>Language: <code>{html.escape(result.lang)}</code> &middot; "
+        f"Preprocessing: <code>{html.escape(result.best.pipeline)}</code> "
         f"(PSM {result.best.psm}) &middot; Mean confidence: {conf_str} &middot; "
         f"{result.best.word_count} words</p>"
         f"<div class='text'>{body}</div>"

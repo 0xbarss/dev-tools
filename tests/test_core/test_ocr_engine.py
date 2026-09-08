@@ -12,9 +12,11 @@ from devtools.core.ocr_engine import (
     OcrError,
     OcrWord,
     SUPPORTED_OUTPUT_FORMATS,
+    available_languages,
     extract_text,
     looks_dark_mode,
     render,
+    require_languages,
     step_grayscale,
     step_invert,
     step_threshold,
@@ -164,6 +166,48 @@ def test_extract_text_unsupported_extension_raises(tmp_path):
 def test_extract_text_unknown_pipeline_raises(clean_image):
     with pytest.raises(OcrError):
         extract_text(clean_image, pipelines=("does-not-exist",))
+
+
+# --- language support -----------------------------------------------------------
+
+
+def test_available_languages_includes_eng():
+    assert "eng" in available_languages()
+
+
+def test_available_languages_excludes_osd():
+    assert "osd" not in available_languages()
+
+
+def test_require_languages_passes_for_installed_language():
+    require_languages("eng")  # should not raise
+
+
+def test_require_languages_rejects_uninstalled_language():
+    with pytest.raises(OcrError, match="not installed"):
+        require_languages("xx-not-a-real-language")
+
+
+def test_require_languages_rejects_empty_string():
+    with pytest.raises(OcrError):
+        require_languages("")
+
+
+def test_extract_text_rejects_uninstalled_language(clean_image):
+    with pytest.raises(OcrError, match="not installed"):
+        extract_text(clean_image, lang="xx-not-a-real-language")
+
+
+def test_extract_text_defaults_to_english(clean_image):
+    result = extract_text(clean_image)
+    assert result.lang == "eng"
+
+
+def test_result_lang_is_echoed_in_json_and_markdown(clean_image):
+    result = extract_text(clean_image, lang="eng")
+    payload = json.loads(render(result, "json"))
+    assert payload["lang"] == "eng"
+    assert "eng" in render(result, "md")
 
 
 # --- output rendering -----------------------------------------------------------
